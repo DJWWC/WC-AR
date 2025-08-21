@@ -1,34 +1,120 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Carpet AR Viewer</title>
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.2/aframe/build/aframe-ar.min.js"></script>
-  </head>
-  <body style="margin: 0; overflow: hidden">
-    <a-scene
-      embedded
-      vr-mode-ui="enabled: false"
-      arjs="sourceType: webcam; debugUIEnabled: false;"
-    >
-      <a-assets>
-        <!-- Load your carpet image -->
-        <img id="carpetTexture" src="my-carpet.jpg" crossorigin="anonymous" />
-      </a-assets>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Floor Tile AR — 1×1 m Texture Tiling</title>
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <style>
+    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
+    main { max-width:900px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+    .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
+    label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
+    input[type="number"], input[type="file"] { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:#e5e7eb; cursor:pointer }
+    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
+    .row { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); }
+    small { color:#94a3b8 }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="panel">
+      <div class="row">
+        <div>
+          <label>Floor width (m)</label>
+          <input id="w" type="number" step="0.01" min="0.5" value="4.00">
+        </div>
+        <div>
+          <label>Floor length (m)</label>
+          <input id="h" type="number" step="0.01" min="0.5" value="6.00">
+        </div>
+        <div>
+          <label>Rotate (deg)</label>
+          <input id="rot" type="number" step="1" value="0">
+        </div>
+        <div>
+          <label>1×1 m tile image (e.g., 7500×7500)</label>
+          <input id="img" type="file" accept="image/*">
+        </div>
+      </div>
+      <div style="margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <button id="apply">Apply size + tiling</button>
+        <button id="preset">Use sample tile</button>
+        <small>Tip: set real size here; avoid scaling inside AR to keep tile = 1×1 m.</small>
+      </div>
+    </div>
 
-      <!-- AR camera -->
-      <a-camera position="0 0 0" look-controls-enabled="false"></a-camera>
+    <!-- iOS → Quick Look; Android → Scene Viewer/WebXR -->
+    <model-viewer id="mv"
+      src="./rug_plane.glb"
+      ar
+      ar-modes="scene-viewer quick-look webxr"
+      camera-controls
+      disable-zoom
+      exposure="1"
+      environment-image="neutral"
+      shadow-intensity="0">
+      <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+    </model-viewer>
 
-      <!-- Carpet plane textured with your carpet image -->
-      <a-plane
-        position="0 -1 -1"
-        rotation="-90 0 0"
-        width="4"
-        height="4"
-        src="#carpetTexture"
-        material="repeat: 8 8; side: double;"
-      ></a-plane>
-    </a-scene>
-  </body>
+    <div class="panel">
+      <small>
+        This scales a 1×1 m plane to your floor size and repeats the texture <b>width</b>×<b>length</b>.
+      </small>
+    </div>
+  </main>
+
+  <script type="module">
+    const mv  = document.getElementById('mv');
+    const w   = document.getElementById('w');
+    const h   = document.getElementById('h');
+    const rot = document.getElementById('rot');
+    const img = document.getElementById('img');
+    const applyBtn = document.getElementById('apply');
+    const presetBtn = document.getElementById('preset');
+
+    let mat = null;
+    let baseTexInfo = null;
+
+    function clampMeters(n, min=0.5, max=100) { n = Number(n)||0; return Math.min(max, Math.max(min, n)); }
+
+    function applySizeRotAndTiling() {
+      const W = clampMeters(w.value);
+      const H = clampMeters(h.value);
+      mv.scale = `${W} 0.001 ${H}`;
+      const deg = Number(rot.value)||0;
+      mv.orientation = `0 ${deg*Math.PI/180} 0`;
+      if (baseTexInfo) {
+        baseTexInfo.setTextureTransform({offset:{u:0,v:0}, rotation:0, scale:{u:W,v:H}});
+      }
+    }
+
+    mv.addEventListener('load', () => {
+      mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
+      if (mat) {
+        baseTexInfo = mat.pbrMetallicRoughness.baseColorTexture;
+        mat.pbrMetallicRoughness.setMetallicFactor(0);
+        mat.pbrMetallicRoughness.setRoughnessFactor(1);
+      }
+      applySizeRotAndTiling();
+    });
+
+    applyBtn.addEventListener('click', applySizeRotAndTiling);
+
+    img.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file || !mat) return;
+      const url = URL.createObjectURL(file);
+      mat.pbrMetallicRoughness.setBaseColorTexture(url);
+      applySizeRotAndTiling();
+    });
+
+    presetBtn.addEventListener('click', () => {
+      if (!mat) return;
+      mat.pbrMetallicRoughness.setBaseColorTexture('./my-carpet.jpg');
+      applySizeRotAndTiling();
+    });
+  </script>
+</body>
 </html>
