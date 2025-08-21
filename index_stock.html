@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Carpet AR — Stock Library</title>
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <style>
+    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
+    main { max-width:1024px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+    .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
+    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
+    input,select,button { padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
+    label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
+    #status { font-size:12px; color:#94a3b8; margin-top:8px }
+
+    /* thumbnail grid */
+    .grid { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+    .thumb {
+      position:relative; border:1px solid #2a2f39; border-radius:10px; overflow:hidden; cursor:pointer;
+      background:#0d0f14;
+    }
+    .thumb img { width:100%; height:90px; object-fit:cover; display:block; }
+    .thumb span { position:absolute; left:8px; bottom:6px; font-size:11px; background:rgba(0,0,0,0.45); padding:2px 6px; border-radius:6px; }
+    .thumb.selected { outline:2px solid #60a5fa; box-shadow:0 0 0 3px rgba(96,165,250,.25) inset; }
+    .row { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label>Room width (m)</label>
+        <input id="w" type="number" step="0.1" min="0.5" value="4">
+      </div>
+      <div>
+        <label>Room length (m)</label>
+        <input id="h" type="number" step="0.1" min="0.5" value="6">
+      </div>
+      <div>
+        <label>Rotate (deg)</label>
+        <input id="rot" type="number" step="1" value="0">
+      </div>
+      <div>
+        <label>Quick pick (optional)</label>
+        <select id="designSelect"></select>
+      </div>
+      <div style="align-self:end;">
+        <button id="apply">Apply size + tiling</button>
+      </div>
+    </div>
+    <div id="status">Idle.</div>
+  </div>
+
+  <div class="panel">
+    <label>Stock designs</label>
+    <div id="grid" class="grid"></div>
+  </div>
+
+  <model-viewer id="mv"
+    src="./rug_plane_blank.glb"
+    ar
+    ar-modes="scene-viewer quick-look webxr"
+    camera-controls
+    disable-zoom
+    exposure="1"
+    environment-image="neutral"
+    shadow-intensity="0">
+    <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+  </model-viewer>
+</main>
+
+<script type="module">
+  // === CONFIG: list your 17 designs here ===
+  const STOCK = [
+  {name:'Berwick Whitsome', url:'./textures/Berwick Whitsome.jpg'},
+  {name:'Chesil Ammonite', url:'./textures/Chesil Ammonite.jpg'},
+  {name:'Chesil Barnacle', url:'./textures/Chesil Barnacle.jpg'},
+  {name:'Chesil Coral', url:'./textures/Chesil Coral.jpg'},
+  {name:'Chesil Driftwood', url:'./textures/Chesil Driftwood.jpg'},
+  {name:'Chesil Dune', url:'./textures/Chesil Dune.jpg'},
+  {name:'Chesil Gull', url:'./textures/Chesil Gull.jpg'},
+  {name:'Chesil Pebble', url:'./textures/Chesil Pebble.jpg'},
+  {name:'Chesil Seaweed', url:'./textures/Chesil Seaweed.jpg'},
+  {name:'Heritage Bath', url:'./textures/Heritage Bath.jpg'},
+  {name:'Heritage Blaise', url:'./textures/Heritage Blaise.jpg'},
+  {name:'Heritage Castlebourne', url:'./textures/Heritage Castlebourne.jpg'},
+  {name:'Heritage Dinton', url:'./textures/Heritage Dinton.jpg'},
+  {name:'Heritage Greystroke', url:'./textures/Heritage Greystroke.jpg'},
+  {name:'Heritage Midford', url:'./textures/Heritage Midford.jpg'},
+  {name:'Heritage Watchfield', url:'./textures/Heritage Watchfield.jpg'},
+  {name:'Heritage Wyke', url:'./textures/Heritage Wyke.jpg'},
+  {name:'Test Carpet 1', url:'./textures/test carpet1.jpg'},
+];
+
+  // ====== DOM ======
+  const mv  = document.getElementById('mv');
+  const w   = document.getElementById('w');
+  const h   = document.getElementById('h');
+  const rot = document.getElementById('rot');
+  const applyBtn = document.getElementById('apply');
+  const status = document.getElementById('status');
+  const grid = document.getElementById('grid');
+  const designSelect = document.getElementById('designSelect');
+
+  // ====== state ======
+  let mat = null;
+  let bakedKey = null;
+  let TILE_URL = STOCK[0]?.url || './my-carpet.jpg';
+
+  // ====== UI build ======
+  function buildDropdown() {
+    designSelect.innerHTML = '';
+    STOCK.forEach((d,i) => {
+      const opt = document.createElement('option');
+      opt.value = d.url; opt.textContent = d.name;
+      if (i === 0) opt.selected = true;
+      designSelect.appendChild(opt);
+    });
+  }
+  function buildGrid() {
+    grid.innerHTML = '';
+    STOCK.forEach((d,i) => {
+      const card = document.createElement('button');
+      card.className = 'thumb' + (i===0 ? ' selected' : '');
+      card.setAttribute('type','button');
+      card.setAttribute('aria-label', d.name);
+      card.innerHTML = `<img src="${d.url}" alt="${d.name}"><span>${d.name}</span>`;
+      card.addEventListener('click', async () => {
+        document.querySelectorAll('.thumb.selected').forEach(el => el.classList.remove('selected'));
+        card.classList.add('selected');
+        designSelect.value = d.url;
+        TILE_URL = d.url;
+        bakedKey = null;
+        await ensureBakedAndApply();
+      });
+      grid.appendChild(card);
+    });
+  }
+
+  // ====== helpers ======
+  function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
+  function applySizeRot() {
+    const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
+    mv.scale = `${W} 0.001 ${H}`;
+    mv.orientation = `0 ${deg*Math.PI/180} 0`;
+  }
+
+  async function fetchImage(url) {
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    const blob = await res.blob();
+    const obj = URL.createObjectURL(blob);
+    const img = new Image();
+    img.src = obj;
+    await img.decode();
+    return { img, revoke: () => URL.revokeObjectURL(obj) };
+  }
+
+  // Downscale large source tiles (keeps pattern detail but avoids huge canvases)
+  async function prepareTile(url, maxSide=2048) {
+    const { img, revoke } = await fetchImage(url);
+    try {
+      const w0 = img.width, h0 = img.height;
+      if (Math.max(w0, h0) <= maxSide) return img;
+      const scale = maxSide / Math.max(w0, h0);
+      const W = Math.max(2, Math.round(w0 * scale));
+      const H = Math.max(2, Math.round(h0 * scale));
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      c.getContext('2d').drawImage(img, 0, 0, W, H);
+      const out = new Image();
+      out.src = c.toDataURL('image/jpeg', 0.9);
+      await out.decode();
+      return out;
+    } finally { revoke(); }
+  }
+
+  // Bake tile repeats to a single bitmap (≤4096 px long side for iOS)
+  async function bakeTiledTexture(tileURL, roomWm, roomHm) {
+    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile per meter
+    const repsY = Math.max(1, Math.round(roomHm));
+    const tile = await prepareTile(tileURL, 2048);  // safe working size
+
+    const tW = tile.width, tH = tile.height;
+    const wantW = repsX * tW, wantH = repsY * tH;
+
+    const MAX = 4096;
+    const scale = Math.min(1, MAX / Math.max(wantW, wantH));
+    const outW = Math.max(8, Math.floor(wantW * scale));
+    const outH = Math.max(8, Math.floor(wantH * scale));
+    const drawW = Math.max(1, Math.floor(tW * scale));
+    const drawH = Math.max(1, Math.floor(tH * scale));
+
+    const c = document.createElement('canvas');
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext('2d');
+
+    for (let y = 0; y < repsY; y++) {
+      for (let x = 0; x < repsX; x++) {
+        ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
+      }
+    }
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  async function ensureBakedAndApply() {
+    if (!mat) return;
+    const Wm = clamp(w.value), Hm = clamp(h.value);
+    const key = `${Wm}x${Hm}:${TILE_URL}`;
+    if (bakedKey === key) return;
+
+    status.textContent = 'Baking tiled texture…';
+    try {
+      const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
+      const tex = await mv.createTexture(bakedURL);
+      mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
+      bakedKey = key;
+      status.textContent = 'Texture applied ✅';
+    } catch (e) {
+      console.error('Bake/apply failed:', e);
+      status.textContent = '❌ Failed to apply texture.';
+    }
+  }
+
+  // ====== events ======
+  mv.addEventListener('load', () => {
+    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
+    if (mat) {
+      mat.pbrMetallicRoughness.setMetallicFactor(0);
+      mat.pbrMetallicRoughness.setRoughnessFactor(1);
+      ensureBakedAndApply();
+    }
+    applySizeRot();
+  });
+
+  applyBtn.addEventListener('click', async () => {
+    applySizeRot();
+    bakedKey = null;
+    await ensureBakedAndApply();
+  });
+
+  designSelect.addEventListener('change', async (e) => {
+    TILE_URL = e.target.value;
+    bakedKey = null;
+    // update selected card highlight
+    document.querySelectorAll('.thumb').forEach(el => el.classList.remove('selected'));
+    const match = Array.from(document.querySelectorAll('.thumb')).find(el => el.querySelector('img')?.src.includes(TILE_URL.replace('./','')));
+    if (match) match.classList.add('selected');
+    await ensureBakedAndApply();
+  });
+
+  // Init UI
+  buildDropdown();
+  buildGrid();
+</script>
+</body>
+</html>
