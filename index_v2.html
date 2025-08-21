@@ -3,59 +3,61 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>AR Carpet Tiling</title>
+  <title>Floor Tile AR — Tiling Fixed</title>
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   <style>
     body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
     main { max-width:900px; margin:0 auto; padding:16px; display:grid; gap:16px; }
     .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
-    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
-    input,button,select { padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
     label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
-    #status { font-size:12px; color:#94a3b8; margin-top:8px }
+    input[type="number"] { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:#e5e7eb; cursor:pointer }
+    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
+    small { color:#94a3b8 }
   </style>
 </head>
 <body>
-<main>
-  <div class="panel">
-    <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
-      <div>
-        <label>Width (m)</label>
-        <input id="w" type="number" step="0.1" min="0.5" value="4">
+  <main>
+    <div class="panel">
+      <div class="row">
+        <div>
+          <label>Floor width (m)</label>
+          <input id="w" type="number" step="0.01" min="0.5" value="4.00">
+        </div>
+        <div>
+          <label>Floor length (m)</label>
+          <input id="h" type="number" step="0.01" min="0.5" value="6.00">
+        </div>
+        <div>
+          <label>Rotate (deg)</label>
+          <input id="rot" type="number" step="1" value="0">
+        </div>
       </div>
-      <div>
-        <label>Length (m)</label>
-        <input id="h" type="number" step="0.1" min="0.5" value="6">
-      </div>
-      <div>
-        <label>Rotate (deg)</label>
-        <input id="rot" type="number" step="1" value="0">
-      </div>
-      <div>
-        <label>Carpet design</label>
-        <select id="design">
-          <option value="./my-carpet.jpg">Test Tile</option>
-        </select>
-      </div>
-      <div style="align-self:end;">
+      <div style="margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
         <button id="apply">Apply size + tiling</button>
+        <small id="status">Idle.</small>
       </div>
     </div>
-    <div id="status">Status: waiting for model…</div>
-  </div>
 
-  <model-viewer id="mv"
-    src="./rug_plane_blank.glb?v=3"
-    ar
-    ar-modes="scene-viewer quick-look webxr"
-    camera-controls
-    disable-zoom
-    exposure="1"
-    environment-image="neutral"
-    shadow-intensity="0">
-    <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
-  </model-viewer>
-</main>
+    <model-viewer id="mv"
+      src="./rug_plane_blank.glb"
+      ar
+      ar-modes="scene-viewer quick-look webxr"
+      camera-controls
+      disable-zoom
+      exposure="1"
+      environment-image="neutral"
+      shadow-intensity="0">
+      <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+    </model-viewer>
+
+    <div class="panel">
+      <small>
+        Upload a seamless 1×1 m design tile (like 1024×1024 or 2048×2048).
+        The app will repeat it across the entered floor area.
+      </small>
+    </div>
+  </main>
 
 <script type="module">
   const mv  = document.getElementById('mv');
@@ -63,128 +65,92 @@
   const h   = document.getElementById('h');
   const rot = document.getElementById('rot');
   const applyBtn = document.getElementById('apply');
-  const status = document.getElementById('status') || { textContent: '' };
-
-  // Use your file by default
-  const TILE_URL = './my-carpet.jpg';
+  const status = document.getElementById('status');
 
   let mat = null;
-  let seeded = false;
   let bakedKey = null;
+  let TILE_URL = './my-carpet.jpg'; // default design
 
-  function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
+  function clampMeters(n, min=0.5, max=100) {
+    n = Number(n)||0;
+    return Math.min(max, Math.max(min, n));
+  }
+
   function applySizeRot() {
-    const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
+    const W = clampMeters(w.value), H = clampMeters(h.value);
     mv.scale = `${W} 0.001 ${H}`;
+    const deg = Number(rot.value)||0;
     mv.orientation = `0 ${deg*Math.PI/180} 0`;
   }
 
-  // 1×1 white PNG (data URL) to force a texture slot
-  const ONEPX = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P8z/CfAQAFqgJz3cW32wAAAABJRU5ErkJggg==';
+  // bake tiling into single canvas
+  async function bakeTiledTexture(tileURL, Wm, Hm) {
+    const repsX = Math.max(1, Math.round(Wm));
+    const repsY = Math.max(1, Math.round(Hm));
+    const img = await loadImage(tileURL);
 
-  async function fetchImage(url) {
-    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    const blob = await res.blob();
-    const obj = URL.createObjectURL(blob);
-    const img = new Image();
-    img.src = obj;
-    await img.decode();
-    return { img, revoke: () => URL.revokeObjectURL(obj) };
-  }
+    const maxSide = 4096;
+    const tileW = img.width, tileH = img.height;
 
-  async function prepareTile(url, maxSide=1024) {
-    const { img, revoke } = await fetchImage(url);
-    try {
-      const w0 = img.width, h0 = img.height;
-      if (Math.max(w0, h0) <= maxSide) return img;
-      const scale = maxSide / Math.max(w0, h0);
-      const W = Math.max(2, Math.round(w0 * scale));
-      const H = Math.max(2, Math.round(h0 * scale));
-      const c = document.createElement('canvas');
-      c.width = W; c.height = H;
-      c.getContext('2d').drawImage(img, 0, 0, W, H);
-      const out = new Image();
-      out.src = c.toDataURL('image/jpeg', 0.9);
-      await out.decode();
-      return out;
-    } finally { revoke(); }
-  }
+    const targetW = Math.min(maxSide, repsX * tileW);
+    const targetH = Math.min(maxSide, repsY * tileH);
 
-  async function bakeTiledTexture(tileURL, roomWm, roomHm) {
-    const repsX = Math.max(1, Math.round(roomWm)); // 1 m per tile
-    const repsY = Math.max(1, Math.round(roomHm));
-    const tile = await prepareTile(tileURL, 1024);
-
-    const tW = tile.width, tH = tile.height;
-    const wantW = repsX * tW, wantH = repsY * tH;
-
-    const MAX = 4096; // iOS-safe
-    const scale = Math.min(1, MAX / Math.max(wantW, wantH));
-    const outW = Math.max(8, Math.floor(wantW * scale));
-    const outH = Math.max(8, Math.floor(wantH * scale));
-    const drawW = Math.max(1, Math.floor(tW * scale));
-    const drawH = Math.max(1, Math.floor(tH * scale));
+    const scaleX = targetW / (repsX * tileW);
+    const scaleY = targetH / (repsY * tileH);
 
     const c = document.createElement('canvas');
-    c.width = outW; c.height = outH;
+    c.width = targetW;
+    c.height = targetH;
     const ctx = c.getContext('2d');
+
+    const drawW = Math.max(1, Math.floor(tileW * scaleX));
+    const drawH = Math.max(1, Math.floor(tileH * scaleY));
 
     for (let y = 0; y < repsY; y++) {
       for (let x = 0; x < repsX; x++) {
-        ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
+        ctx.drawImage(img, x*drawW, y*drawH, drawW, drawH);
       }
     }
     return c.toDataURL('image/jpeg', 0.92);
   }
 
-  async function seedTextureSlot() {
-    if (!mat || seeded) return;
-    try {
-      mat.pbrMetallicRoughness.setBaseColorTexture(ONEPX);
-      seeded = true;
-      console.log('Seeded baseColorTexture slot with 1×1 image.');
-    } catch (e) {
-      console.error('Failed to seed texture slot:', e);
-    }
+  function loadImage(url) {
+    return new Promise((res, rej) => {
+      const i = new Image();
+      i.crossOrigin = 'anonymous';
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = url;
+    });
   }
 
   async function ensureBakedAndApply() {
     if (!mat) return;
-    const Wm = clamp(w.value), Hm = clamp(h.value);
+    const Wm = clampMeters(w.value), Hm = clampMeters(h.value);
     const key = `${Wm}x${Hm}:${TILE_URL}`;
     if (bakedKey === key) return;
 
     status.textContent = 'Baking tiled texture…';
     try {
-      await seedTextureSlot(); // make sure slot exists
       const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
-      mat.pbrMetallicRoughness.setBaseColorTexture(bakedURL);
+      const tex = await mv.createTexture(bakedURL);
+      mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
       bakedKey = key;
       status.textContent = 'Texture applied ✅';
     } catch (e) {
       console.error('Bake/apply failed:', e);
-      status.textContent = '⚠️ Bake failed, trying single tile…';
-      try {
-        await seedTextureSlot();
-        mat.pbrMetallicRoughness.setBaseColorTexture(TILE_URL);
-        status.textContent = 'Single tile applied (no tiling).';
-      } catch (e2) {
-        console.error('Fallback apply failed:', e2);
-        status.textContent = '❌ Failed to apply any texture. See console.';
-      }
+      status.textContent = '❌ Failed to apply texture.';
     }
   }
 
   mv.addEventListener('load', () => {
-    const mats = mv.model?.materials || [];
-    console.log('Materials found:', mats.map(m => m.name));
-    mat = mats.find(m => m.name === 'RugMat') || mats[0];
-    if (!mat) { status.textContent = '❌ No material found on model.'; return; }
-    mat.pbrMetallicRoughness.setMetallicFactor(0);
-    mat.pbrMetallicRoughness.setRoughnessFactor(1);
+    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
+    if (mat) {
+      mat.pbrMetallicRoughness.setMetallicFactor(0);
+      mat.pbrMetallicRoughness.setRoughnessFactor(1);
+      ensureBakedAndApply();
+    }
     applySizeRot();
-    ensureBakedAndApply();
   });
 
   applyBtn.addEventListener('click', async () => {
@@ -192,14 +158,7 @@
     bakedKey = null;
     await ensureBakedAndApply();
   });
-
-  mv.addEventListener('ar-status', async (ev) => {
-    if (ev.detail.status === 'requested') {
-      await ensureBakedAndApply();
-    }
-  });
 </script>
-
 
 </body>
 </html>
