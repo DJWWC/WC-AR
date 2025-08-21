@@ -62,9 +62,9 @@
   const w   = document.getElementById('w');
   const h   = document.getElementById('h');
   const rot = document.getElementById('rot');
-  const design = document.getElementById('design');
+  const design = document.getElementById('design') || { value: './my-carpet.jpg' };
   const applyBtn = document.getElementById('apply');
-  const status = document.getElementById('status');
+  const status = document.getElementById('status') || { textContent: '' };
 
   let mat = null;
   let bakedKey = null;
@@ -76,91 +76,108 @@
     mv.orientation = `0 ${deg*Math.PI/180} 0`;
   }
 
-  // ---- robust image loader (same-origin) ----
-  async function loadImage(url) {
-    // Bust cache in case GH Pages is stale
+  async function fetchImage(url) {
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     const blob = await res.blob();
-    const objURL = URL.createObjectURL(blob);
+    const obj = URL.createObjectURL(blob);
     const img = new Image();
-    img.src = objURL;
+    img.src = obj;
     await img.decode();
-    return { img, revoke: () => URL.revokeObjectURL(objURL) };
+    return { img, revoke: () => URL.revokeObjectURL(obj) };
   }
 
-  // ---- tiling bake (caps to 4096 for iOS safety) ----
-  async function bakeTiledTexture(tileURL, Wm, Hm) {
-    const repsX = Math.max(1, Math.round(Wm));
-    const repsY = Math.max(1, Math.round(Hm));
-    const { img, revoke } = await loadImage(tileURL);
-
+  // Downscale huge tiles to a safe working size (keeps aspect)
+  async function prepareTile(url, maxSide=1024) {
+    const { img, revoke } = await fetchImage(url);
     try {
-      const maxSide = 4096;
-      // desired pixels before clamp
-      const wantW = repsX * img.width;
-      const wantH = repsY * img.height;
+      const { width: w0, height: h0 } = img;
+      if (Math.max(w0, h0) <= maxSide) return img;
 
-      // clamp while preserving aspect
-      const scale = Math.min(1, maxSide / Math.max(wantW, wantH));
-      const targetW = Math.max(8, Math.floor(wantW * scale));
-      const targetH = Math.max(8, Math.floor(wantH * scale));
-
-      const drawW = Math.max(1, Math.floor((img.width)  * scale));
-      const drawH = Math.max(1, Math.floor((img.height) * scale));
-
+      const scale = maxSide / Math.max(w0, h0);
+      const W = Math.max(2, Math.round(w0 * scale));
+      const H = Math.max(2, Math.round(h0 * scale));
       const c = document.createElement('canvas');
-      c.width = targetW; c.height = targetH;
+      c.width = W; c.height = H;
       const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, W, H);
 
-      for (let y = 0; y < repsY; y++) {
-        for (let x = 0; x < repsX; x++) {
-          ctx.drawImage(img, x*drawW, y*drawH, drawW, drawH);
-        }
-      }
-      return c.toDataURL('image/jpeg', 0.92);
+      const downsized = new Image();
+      downsized.src = c.toDataURL('image/jpeg', 0.9);
+      await downsized.decode();
+      return downsized;
     } finally {
       revoke();
     }
   }
 
+  // Bake repeats to a single bitmap (<=4096px on the long side)
+  async function bakeTiledTexture(tileURL, roomWm, roomHm) {
+    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile per meter
+    const repsY = Math.max(1, Math.round(roomHm));
+
+    // 1) Prepare tile (downscale huge sources first)
+    const tile = await prepareTile(tileURL, 1024); // safe working tile
+    const tW = tile.width, tH = tile.height;
+
+    // 2) Desired pixel size before clamp
+    const wantW = repsX * tW;
+    const wantH = repsY * tH;
+
+    // 3) Clamp result to iOS-safe size
+    const MAX = 4096;
+    const scale = Math.min(1, MAX / Math.max(wantW, wantH));
+    const outW = Math.max(8, Math.floor(wantW * scale));
+    const outH = Math.max(8, Math.floor(wantH * scale));
+
+    // 4) Compute drawn tile size after clamp
+    const drawW = Math.max(1, Math.floor(tW * scale));
+    const drawH = Math.max(1, Math.floor(tH * scale));
+
+    // 5) Draw
+    const c = document.createElement('canvas');
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext('2d');
+
+    for (let y = 0; y < repsY; y++) {
+      for (let x = 0; x < repsX; x++) {
+        ctx.drawImage(tile, x * drawW, y * drawH, drawW, drawH);
+      }
+    }
+
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
   async function ensureBakedAndApply() {
     if (!mat) return;
-    const W = clamp(w.value), H = clamp(h.value);
-    const tileURL = design.value; // e.g. ./my-carpet.jpg
-    const key = `${W}x${H}:${tileURL}`;
+    const Wm = clamp(w.value), Hm = clamp(h.value);
+    const tileURL = (design.value || './my-carpet.jpg');
+    const key = `${Wm}x${Hm}:${tileURL}`;
     if (bakedKey === key) return;
 
-    status.textContent = "Baking texture…";
+    status.textContent = 'Baking tiled texture…';
     try {
-      const bakedURL = await bakeTiledTexture(tileURL, W, H);
+      const bakedURL = await bakeTiledTexture(tileURL, Wm, Hm);
       mat.pbrMetallicRoughness.setBaseColorTexture(bakedURL);
       bakedKey = key;
-      status.textContent = "Texture applied ✅";
+      status.textContent = 'Texture applied ✅';
     } catch (e) {
-      console.error("Bake failed:", e);
-      // Fallback: still show the single tile so it's not blank
-      try {
-        mat.pbrMetallicRoughness.setBaseColorTexture(tileURL);
-        status.textContent = "⚠️ Tiling bake failed, showing single tile.";
-      } catch (e2) {
-        status.textContent = "❌ Failed to apply any texture. See console.";
-        console.error("Fallback failed:", e2);
-      }
+      console.error('Bake failed:', e);
+      status.textContent = '⚠️ Bake failed. Showing single tile.';
+      try { mat.pbrMetallicRoughness.setBaseColorTexture(tileURL); } catch {}
     }
   }
 
   mv.addEventListener('load', () => {
     mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
-    console.log("Materials:", mv.model?.materials?.map(m => m.name));
-    if (mat) {
-      mat.pbrMetallicRoughness.setMetallicFactor(0);
-      mat.pbrMetallicRoughness.setRoughnessFactor(1);
-      ensureBakedAndApply();
-    } else {
-      status.textContent = "❌ No material found on model.";
+    if (!mat) {
+      status.textContent = '❌ No material found on model.';
+      return;
     }
+    mat.pbrMetallicRoughness.setMetallicFactor(0);
+    mat.pbrMetallicRoughness.setRoughnessFactor(1);
     applySizeRot();
+    ensureBakedAndApply();
   });
 
   applyBtn.addEventListener('click', async () => {
@@ -169,7 +186,7 @@
     await ensureBakedAndApply();
   });
 
-  // Bake before AR handoff
+  // Make sure baked texture is ready before AR handoff
   mv.addEventListener('ar-status', async (ev) => {
     if (ev.detail.status === 'requested') {
       await ensureBakedAndApply();
