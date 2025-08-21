@@ -40,19 +40,17 @@
       </div>
     </div>
 
-    <!-- iOS → Quick Look; Android → Scene Viewer/WebXR -->
     <model-viewer id="mv"
-      src="./rug_plane_textured.glb"
-      ios-src="./rug_plane_textured.usdz"   <!-- ✅ Add this line -->
-      ar
-      ar-modes="scene-viewer quick-look webxr"
-      camera-controls
-      disable-zoom
-      exposure="1"
-      environment-image="neutral"
-      shadow-intensity="0">
-      <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
-    </model-viewer>
+  src="./rug_plane_textured.glb"
+  ar
+  ar-modes="scene-viewer quick-look webxr"
+  camera-controls
+  disable-zoom
+  exposure="1"
+  environment-image="neutral"
+  shadow-intensity="0">
+  <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+</model-viewer>
 
     <div class="panel">
       <small>
@@ -83,3 +81,4 @@
 
 </body>
 </html>
+
