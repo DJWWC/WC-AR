@@ -62,11 +62,14 @@
   const w   = document.getElementById('w');
   const h   = document.getElementById('h');
   const rot = document.getElementById('rot');
-  const design = document.getElementById('design') || { value: './my-carpet.jpg' };
   const applyBtn = document.getElementById('apply');
   const status = document.getElementById('status') || { textContent: '' };
 
+  // Use your file by default
+  const TILE_URL = './my-carpet.jpg';
+
   let mat = null;
+  let seeded = false;
   let bakedKey = null;
 
   function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
@@ -75,6 +78,9 @@
     mv.scale = `${W} 0.001 ${H}`;
     mv.orientation = `0 ${deg*Math.PI/180} 0`;
   }
+
+  // 1×1 white PNG (data URL) to force a texture slot
+  const ONEPX = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P8z/CfAQAFqgJz3cW32wAAAABJRU5ErkJggg==';
 
   async function fetchImage(url) {
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache: 'no-store' });
@@ -87,93 +93,94 @@
     return { img, revoke: () => URL.revokeObjectURL(obj) };
   }
 
-  // Downscale huge tiles to a safe working size (keeps aspect)
   async function prepareTile(url, maxSide=1024) {
     const { img, revoke } = await fetchImage(url);
     try {
-      const { width: w0, height: h0 } = img;
+      const w0 = img.width, h0 = img.height;
       if (Math.max(w0, h0) <= maxSide) return img;
-
       const scale = maxSide / Math.max(w0, h0);
       const W = Math.max(2, Math.round(w0 * scale));
       const H = Math.max(2, Math.round(h0 * scale));
       const c = document.createElement('canvas');
       c.width = W; c.height = H;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0, W, H);
-
-      const downsized = new Image();
-      downsized.src = c.toDataURL('image/jpeg', 0.9);
-      await downsized.decode();
-      return downsized;
-    } finally {
-      revoke();
-    }
+      c.getContext('2d').drawImage(img, 0, 0, W, H);
+      const out = new Image();
+      out.src = c.toDataURL('image/jpeg', 0.9);
+      await out.decode();
+      return out;
+    } finally { revoke(); }
   }
 
-  // Bake repeats to a single bitmap (<=4096px on the long side)
   async function bakeTiledTexture(tileURL, roomWm, roomHm) {
-    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile per meter
+    const repsX = Math.max(1, Math.round(roomWm)); // 1 m per tile
     const repsY = Math.max(1, Math.round(roomHm));
+    const tile = await prepareTile(tileURL, 1024);
 
-    // 1) Prepare tile (downscale huge sources first)
-    const tile = await prepareTile(tileURL, 1024); // safe working tile
     const tW = tile.width, tH = tile.height;
+    const wantW = repsX * tW, wantH = repsY * tH;
 
-    // 2) Desired pixel size before clamp
-    const wantW = repsX * tW;
-    const wantH = repsY * tH;
-
-    // 3) Clamp result to iOS-safe size
-    const MAX = 4096;
+    const MAX = 4096; // iOS-safe
     const scale = Math.min(1, MAX / Math.max(wantW, wantH));
     const outW = Math.max(8, Math.floor(wantW * scale));
     const outH = Math.max(8, Math.floor(wantH * scale));
-
-    // 4) Compute drawn tile size after clamp
     const drawW = Math.max(1, Math.floor(tW * scale));
     const drawH = Math.max(1, Math.floor(tH * scale));
 
-    // 5) Draw
     const c = document.createElement('canvas');
     c.width = outW; c.height = outH;
     const ctx = c.getContext('2d');
 
     for (let y = 0; y < repsY; y++) {
       for (let x = 0; x < repsX; x++) {
-        ctx.drawImage(tile, x * drawW, y * drawH, drawW, drawH);
+        ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
       }
     }
-
     return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  async function seedTextureSlot() {
+    if (!mat || seeded) return;
+    try {
+      mat.pbrMetallicRoughness.setBaseColorTexture(ONEPX);
+      seeded = true;
+      console.log('Seeded baseColorTexture slot with 1×1 image.');
+    } catch (e) {
+      console.error('Failed to seed texture slot:', e);
+    }
   }
 
   async function ensureBakedAndApply() {
     if (!mat) return;
     const Wm = clamp(w.value), Hm = clamp(h.value);
-    const tileURL = (design.value || './my-carpet.jpg');
-    const key = `${Wm}x${Hm}:${tileURL}`;
+    const key = `${Wm}x${Hm}:${TILE_URL}`;
     if (bakedKey === key) return;
 
     status.textContent = 'Baking tiled texture…';
     try {
-      const bakedURL = await bakeTiledTexture(tileURL, Wm, Hm);
+      await seedTextureSlot(); // make sure slot exists
+      const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
       mat.pbrMetallicRoughness.setBaseColorTexture(bakedURL);
       bakedKey = key;
       status.textContent = 'Texture applied ✅';
     } catch (e) {
-      console.error('Bake failed:', e);
-      status.textContent = '⚠️ Bake failed. Showing single tile.';
-      try { mat.pbrMetallicRoughness.setBaseColorTexture(tileURL); } catch {}
+      console.error('Bake/apply failed:', e);
+      status.textContent = '⚠️ Bake failed, trying single tile…';
+      try {
+        await seedTextureSlot();
+        mat.pbrMetallicRoughness.setBaseColorTexture(TILE_URL);
+        status.textContent = 'Single tile applied (no tiling).';
+      } catch (e2) {
+        console.error('Fallback apply failed:', e2);
+        status.textContent = '❌ Failed to apply any texture. See console.';
+      }
     }
   }
 
   mv.addEventListener('load', () => {
-    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
-    if (!mat) {
-      status.textContent = '❌ No material found on model.';
-      return;
-    }
+    const mats = mv.model?.materials || [];
+    console.log('Materials found:', mats.map(m => m.name));
+    mat = mats.find(m => m.name === 'RugMat') || mats[0];
+    if (!mat) { status.textContent = '❌ No material found on model.'; return; }
     mat.pbrMetallicRoughness.setMetallicFactor(0);
     mat.pbrMetallicRoughness.setRoughnessFactor(1);
     applySizeRot();
@@ -186,7 +193,6 @@
     await ensureBakedAndApply();
   });
 
-  // Make sure baked texture is ready before AR handoff
   mv.addEventListener('ar-status', async (ev) => {
     if (ev.detail.status === 'requested') {
       await ensureBakedAndApply();
