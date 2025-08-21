@@ -20,33 +20,27 @@
 <body>
   <main>
     <div class="panel">
-      <div class="row">
-        <div>
-          <label>Floor width (m)</label>
-          <input id="w" type="number" step="0.01" min="0.5" value="4.00">
-        </div>
-        <div>
-          <label>Floor length (m)</label>
-          <input id="h" type="number" step="0.01" min="0.5" value="6.00">
-        </div>
-        <div>
-          <label>Rotate (deg)</label>
-          <input id="rot" type="number" step="1" value="0">
-        </div>
-        <div>
-          <label>Choose a carpet design</label>
-          <select id="designSelect">
-            <option value="">-- Select a design --</option>
-            <option value="carpet1.jpg">Carpet 1</option>
-            <option value="carpet2.jpg">Carpet 2</option>
-            <option value="carpet3.jpg">Carpet 3</option>
-            <!-- add more carpets here -->
-          </select>
-        </div>
-      </div>
-      <div style="margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <button id="apply">Apply size + texture</button>
-      </div>
+      <label for="design">Choose a carpet design:</label>
+      <select id="design">
+        <option value="Berwick_Whitsome.jpg">Berwick Whitsome</option>
+        <option value="Chesil_Ammonite.jpg">Chesil Ammonite</option>
+        <option value="Chesil_Barnacle.jpg">Chesil Barnacle</option>
+        <option value="Chesil_Coral.jpg">Chesil Coral</option>
+        <option value="Chesil_Driftwood.jpg">Chesil Driftwood</option>
+        <option value="Chesil_Dune.jpg">Chesil Dune</option>
+        <option value="Chesil_Gull.jpg">Chesil Gull</option>
+        <option value="Chesil_Pebble.jpg">Chesil Pebble</option>
+        <option value="Chesil_Seaweed.jpg">Chesil Seaweed</option>
+        <option value="Heritage_Bath.jpg">Heritage Bath</option>
+        <option value="Heritage_Blaise.jpg">Heritage Blaise</option>
+        <option value="Heritage_Castlebourne.jpg">Heritage Castlebourne</option>
+        <option value="Heritage_Dinton.jpg">Heritage Dinton</option>
+        <option value="Heritage_Greystroke.jpg">Heritage Greystroke</option>
+        <option value="Heritage_Midford.jpg">Heritage Midford</option>
+        <option value="Heritage_Watchfield.jpg">Heritage Watchfield</option>
+        <option value="Heritage_Wyke.jpg">Heritage Wyke</option>
+        <option value="test_carpet1.jpg">Test Carpet 1</option>
+      </select>
     </div>
 
     <model-viewer id="mv"
@@ -62,52 +56,37 @@
     </model-viewer>
 
     <div class="panel">
-      <small>
-        Select a stock carpet design and scale it to the correct floor size.
-      </small>
+      <small>Select a stock carpet design from the list above.  
+      The chosen image will be tiled at 1×1m across the floor plane and clipped to the entered room size.</small>
     </div>
   </main>
 
 <script type="module">
-  const mv  = document.getElementById('mv');
-  const w   = document.getElementById('w');
-  const h   = document.getElementById('h');
-  const rot = document.getElementById('rot');
-  const designSelect = document.getElementById('designSelect');
-  const applyBtn  = document.getElementById('apply');
+  const mv = document.getElementById('mv');
+  const select = document.getElementById('design');
 
-  let mat = null;
+  async function applyTexture(file) {
+    try {
+      const scene = mv.model?.scene;
+      if (!scene) return console.error("No scene yet");
 
-  function clampMeters(n, min=0.5, max=100) { n = Number(n)||0; return Math.min(max, Math.max(min, n)); }
-
-  function applySizeRot() {
-    const W = clampMeters(w.value), H = clampMeters(h.value);
-    mv.scale = `${W} 0.001 ${H}`;
-    const deg = Number(rot.value)||0;
-    mv.orientation = `0 ${deg*Math.PI/180} 0`;
+      scene.traverse((node) => {
+        if (node.isMesh && node.material && node.material.name === "RugMat") {
+          const tex = new THREE.TextureLoader().load(`./textures/${file}`);
+          tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+          tex.repeat.set(1, 1); // 1×1m tile repeat
+          node.material.map = tex;
+          node.material.needsUpdate = true;
+        }
+      });
+    } catch (err) {
+      console.error("❌ Failed to apply texture", err);
+    }
   }
 
-  async function loadTexture(url) {
-    if (!mat) return;
-    const tex = await mv.createTexture(url);
-    mat.pbrMetallicRoughness.setBaseColorTexture(tex);
-    mat.pbrMetallicRoughness.setMetallicFactor(0);
-    mat.pbrMetallicRoughness.setRoughnessFactor(1);
-    console.log("✅ Applied texture:", url);
-  }
-
-  mv.addEventListener('load', () => {
-    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
-    applySizeRot();
-  });
-
-  designSelect.addEventListener('change', async () => {
-    const file = designSelect.value;
-    if (!file) return;
-    await loadTexture(`./textures/${file}`);
-  });
-
-  applyBtn.addEventListener('click', applySizeRot);
+  // On dropdown change → apply new carpet texture
+  select.addEventListener('change', (e) => applyTexture(e.target.value));
+  mv.addEventListener('load', () => applyTexture(select.value));
 </script>
 
 </body>
