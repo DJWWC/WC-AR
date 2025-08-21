@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>AR Carpet Tiling</title>
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <style>
+    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
+    main { max-width:900px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+    .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
+    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
+    input,button,select { padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
+    label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
+    #status { font-size:12px; color:#94a3b8; margin-top:8px }
+  </style>
+</head>
+<body>
+<main>
+  <div class="panel">
+    <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
+      <div>
+        <label>Width (m)</label>
+        <input id="w" type="number" step="0.1" min="0.5" value="4">
+      </div>
+      <div>
+        <label>Length (m)</label>
+        <input id="h" type="number" step="0.1" min="0.5" value="6">
+      </div>
+      <div>
+        <label>Rotate (deg)</label>
+        <input id="rot" type="number" step="1" value="0">
+      </div>
+      <div>
+        <label>Carpet design</label>
+        <select id="design">
+          <option value="./my-carpet.jpg">Test Tile</option>
+        </select>
+      </div>
+      <div style="align-self:end;">
+        <button id="apply">Apply size + tiling</button>
+      </div>
+    </div>
+    <div id="status">Status: waiting for model…</div>
+  </div>
+
+  <model-viewer id="mv"
+    src="./rug_plane_blank.glb?v=3"
+    ar
+    ar-modes="scene-viewer quick-look webxr"
+    camera-controls
+    disable-zoom
+    exposure="1"
+    environment-image="neutral"
+    shadow-intensity="0">
+    <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+  </model-viewer>
+</main>
+
+<script type="module">
+  const mv  = document.getElementById('mv');
+  const w   = document.getElementById('w');
+  const h   = document.getElementById('h');
+  const rot = document.getElementById('rot');
+  const design = document.getElementById('design');
+  const applyBtn = document.getElementById('apply');
+  const status = document.getElementById('status');
+
+  let mat = null;
+  let bakedKey = null;
+
+  function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
+
+  function applySizeRot() {
+    const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
+    mv.scale = `${W} 0.001 ${H}`;
+    mv.orientation = `0 ${deg*Math.PI/180} 0`;
+  }
+
+  async function bakeTiledTexture(tileURL, Wm, Hm) {
+    const repsX = Math.max(1, Math.round(Wm));
+    const repsY = Math.max(1, Math.round(Hm));
+    const img = await loadImage(tileURL);
+
+    const maxSide = 4096; // cap for performance
+    const targetW = Math.min(maxSide, repsX * img.width);
+    const targetH = Math.min(maxSide, repsY * img.height);
+    const scaleX = targetW / (repsX * img.width);
+    const scaleY = targetH / (repsY * img.height);
+
+    const c = document.createElement('canvas');
+    c.width = targetW;
+    c.height = targetH;
+    const ctx = c.getContext('2d');
+    const drawW = Math.floor(img.width * scaleX);
+    const drawH = Math.floor(img.height * scaleY);
+
+    for (let y = 0; y < repsY; y++) {
+      for (let x = 0; x < repsX; x++) {
+        ctx.drawImage(img, x*drawW, y*drawH, drawW, drawH);
+      }
+    }
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  function loadImage(url) {
+    return new Promise((res, rej) => {
+      const i = new Image();
+      i.crossOrigin = 'anonymous';
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = url;
+    });
+  }
+
+  async function ensureBakedAndApply() {
+    if (!mat) return;
+    const W = clamp(w.value), H = clamp(h.value);
+    const tileURL = design.value;
+    const key = `${W}x${H}:${tileURL}`;
+    if (bakedKey === key) return;
+    status.textContent = "Baking texture…";
+    try {
+      const bakedURL = await bakeTiledTexture(tileURL, W, H);
+      mat.pbrMetallicRoughness.setBaseColorTexture(bakedURL);
+      bakedKey = key;
+      status.textContent = "Texture applied ✅";
+    } catch (e) {
+      console.error(e);
+      status.textContent = "❌ Failed to bake texture";
+    }
+  }
+
+  mv.addEventListener('load', () => {
+    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
+    if (mat) {
+      mat.pbrMetallicRoughness.setMetallicFactor(0);
+      mat.pbrMetallicRoughness.setRoughnessFactor(1);
+      ensureBakedAndApply();
+    }
+    applySizeRot();
+  });
+
+  applyBtn.addEventListener('click', async () => {
+    applySizeRot();
+    bakedKey = null;
+    await ensureBakedAndApply();
+  });
+
+  // Bake before AR handoff
+  mv.addEventListener('ar-status', async (ev) => {
+    if (ev.detail.status === 'requested') {
+      await ensureBakedAndApply();
+    }
+  });
+</script>
+
+</body>
+</html>
