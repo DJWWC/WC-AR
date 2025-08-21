@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Floor AR — V1.5 Full-Room JPG Upload</title>
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <style>
+    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
+    main { max-width:900px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+    .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
+    label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
+    input[type="number"], input[type="file"] { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:#e5e7eb; cursor:pointer }
+    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
+    small { color:#94a3b8 }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="panel">
+      <label>Room width (m)</label>
+      <input id="w" type="number" step="0.1" min="0.5" value="4.0">
+      <label>Room length (m)</label>
+      <input id="h" type="number" step="0.1" min="0.5" value="6.0">
+      <label>Upload full-room JPG (max 4096 px per side)</label>
+      <input id="img" type="file" accept="image/*">
+      <div style="margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <button id="apply">Apply size + texture</button>
+      </div>
+    </div>
+
+    <!-- iOS → Quick Look; Android → Scene Viewer/WebXR -->
+    <model-viewer id="mv"
+      src="./rug_plane_textured.glb"
+      ar
+      ar-modes="scene-viewer quick-look webxr"
+      camera-controls
+      disable-zoom
+      exposure="1"
+      environment-image="neutral"
+      shadow-intensity="0">
+      <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+    </model-viewer>
+
+    <div class="panel">
+      <small>
+        V1.5: Stretch uploaded full-room JPG across the entered dimensions.<br>
+        Longest side will be auto-resized to ≤ 4096 px for AR compatibility.
+      </small>
+    </div>
+  </main>
+
+<script type="module">
+  const mv  = document.getElementById('mv');
+  const w   = document.getElementById('w');
+  const h   = document.getElementById('h');
+  const img = document.getElementById('img');
+  const applyBtn  = document.getElementById('apply');
+
+  let mat = null;
+  let baseTexInfo = null;
+  let currentTexture = null;
+
+  function clampMeters(n, min=0.5, max=100) { 
+    n = Number(n)||0; 
+    return Math.min(max, Math.max(min, n)); 
+  }
+
+  function applySize() {
+    const W = clampMeters(w.value), H = clampMeters(h.value);
+    mv.scale = `${W} 0.001 ${H}`;
+  }
+
+  function loadImage(fileOrURL) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      if (typeof fileOrURL === "string") img.src = fileOrURL;
+      else img.src = URL.createObjectURL(fileOrURL);
+    });
+  }
+
+  async function resizeIfNeeded(image) {
+    const maxSide = 4096;
+    let {width, height} = image;
+    if (width <= maxSide && height <= maxSide) return image;
+
+    const scale = maxSide / Math.max(width, height);
+    const newW = Math.round(width * scale);
+    const newH = Math.round(height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = newW;
+    canvas.height = newH;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, newW, newH);
+    const resized = new Image();
+    resized.src = canvas.toDataURL("image/jpeg", 0.92);
+    await resized.decode();
+    return resized;
+  }
+
+  async function setTextureFromFile(file) {
+    const imgEl = await loadImage(file);
+    const safeImg = await resizeIfNeeded(imgEl);
+    currentTexture = safeImg.src;
+    mat.pbrMetallicRoughness.setBaseColorTexture(currentTexture);
+    baseTexInfo?.setTextureTransform({ offset:{u:0,v:0}, rotation:0, scale:{u:1,v:1} });
+  }
+
+  mv.addEventListener("load", () => {
+    mat = mv.model?.materials?.find(m => m.name === "RugMat") || mv.model?.materials?.[0];
+    if (mat) {
+      baseTexInfo = mat.pbrMetallicRoughness.baseColorTexture;
+      mat.pbrMetallicRoughness.setMetallicFactor(0);
+      mat.pbrMetallicRoughness.setRoughnessFactor(1);
+    }
+    applySize();
+  });
+
+  applyBtn.addEventListener("click", applySize);
+  img.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !mat) return;
+    await setTextureFromFile(file);
+  });
+</script>
+
+</body>
+</html>
