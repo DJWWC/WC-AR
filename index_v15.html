@@ -111,15 +111,22 @@
     baseTexInfo?.setTextureTransform({ offset:{u:0,v:0}, rotation:0, scale:{u:1,v:1} });
   }
 
-  mv.addEventListener("load", () => {
-    mat = mv.model?.materials?.find(m => m.name === "RugMat") || mv.model?.materials?.[0];
-    if (mat) {
-      baseTexInfo = mat.pbrMetallicRoughness.baseColorTexture;
-      mat.pbrMetallicRoughness.setMetallicFactor(0);
-      mat.pbrMetallicRoughness.setRoughnessFactor(1);
-    }
-    applySize();
-  });
+  mv.addEventListener('load', async () => {
+  mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
+  console.log("Loaded materials:", mv.model?.materials?.map(m=>m.name)); // debug log
+
+  if (mat) {
+    baseTexInfo = mat.pbrMetallicRoughness.baseColorTexture;
+    mat.pbrMetallicRoughness.setMetallicFactor(0);
+    mat.pbrMetallicRoughness.setRoughnessFactor(1);
+
+    // 🔴 Force load of your default carpet here for debugging
+    currentTileURL = './my-carpet.jpg';
+    mat.pbrMetallicRoughness.setBaseColorTexture(currentTileURL);
+    console.log("Applied default carpet texture:", currentTileURL);
+  }
+  applySizeRot();
+});
 
   applyBtn.addEventListener("click", applySize);
   img.addEventListener("change", async (e) => {
