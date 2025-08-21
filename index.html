@@ -33,21 +33,17 @@
           <label>Rotate (deg)</label>
           <input id="rot" type="number" step="1" value="0">
         </div>
-        <div>
-          <label>1×1 m tile image (e.g., 7500×7500)</label>
-          <input id="img" type="file" accept="image/*">
-        </div>
       </div>
       <div style="margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
         <button id="apply">Apply size + tiling</button>
-        <button id="preset">Use sample tile</button>
         <small>Tip: set real size here; avoid scaling inside AR to keep tile = 1×1 m.</small>
       </div>
     </div>
 
     <!-- iOS → Quick Look; Android → Scene Viewer/WebXR -->
     <model-viewer id="mv"
-      src="./rug_plane.glb"
+      src="./rug_plane_textured.glb"
+      ios-src="./rug_plane_textured.usdz"   <!-- ✅ Add this line -->
       ar
       ar-modes="scene-viewer quick-look webxr"
       camera-controls
@@ -70,14 +66,7 @@
   const w   = document.getElementById('w');
   const h   = document.getElementById('h');
   const rot = document.getElementById('rot');
-  const img = document.getElementById('img');
   const applyBtn  = document.getElementById('apply');
-  const presetBtn = document.getElementById('preset');
-
-  let mat = null;
-  let baseTexInfo = null;
-  let currentTileURL = './my-carpet.jpg';    // default from repo
-  let bakedForDims = null;                   // cache key: `${W}x${H}:${currentTileURL}`
 
   function clampMeters(n, min=0.5, max=100) { n = Number(n)||0; return Math.min(max, Math.max(min, n)); }
 
@@ -88,105 +77,9 @@
     mv.orientation = `0 ${deg*Math.PI/180} 0`;
   }
 
-  // --- Bake tiling into a single bitmap (so Quick Look sees it) ---
-  async function bakeTiledTexture(tileURL, Wm, Hm) {
-    // how many repeats? 1 tile per meter
-    const repsX = Math.max(1, Math.round(Wm));
-    const repsY = Math.max(1, Math.round(Hm));
-
-    const img = await loadImage(tileURL);
-    // target size: keep within ~4096 px on the longer side for mobile safety
-    const maxSide = 4096;
-    const tileW = img.width, tileH = img.height;
-
-    // Compose size proportional to repeats, clamped to maxSide
-    const targetW = Math.min(maxSide, repsX * tileW);
-    const targetH = Math.min(maxSide, repsY * tileH);
-
-    // Scale factor so tiles still look crisp if we had to clamp
-    const scaleX = targetW / (repsX * tileW);
-    const scaleY = targetH / (repsY * tileH);
-
-    const c = document.createElement('canvas');
-    c.width = targetW;
-    c.height = targetH;
-    const ctx = c.getContext('2d');
-
-    const drawW = Math.max(1, Math.floor(tileW * scaleX));
-    const drawH = Math.max(1, Math.floor(tileH * scaleY));
-
-    for (let y = 0; y < repsY; y++) {
-      for (let x = 0; x < repsX; x++) {
-        ctx.drawImage(img, x*drawW, y*drawH, drawW, drawH);
-      }
-    }
-    return c.toDataURL('image/jpeg', 0.92);
-  }
-
-  function loadImage(url) {
-    return new Promise((res, rej) => {
-      const i = new Image();
-      i.crossOrigin = 'anonymous';
-      i.onload = () => res(i);
-      i.onerror = rej;
-      i.src = url;
-    });
-  }
-
-  async function ensureBakedAndApply() {
-    const W = clampMeters(w.value), H = clampMeters(h.value);
-    const key = `${W}x${H}:${currentTileURL}`;
-    if (bakedForDims !== key) {
-      const bakedURL = await bakeTiledTexture(currentTileURL, W, H);
-      mat.pbrMetallicRoughness.setBaseColorTexture(bakedURL);
-      // IMPORTANT: baked texture already contains the repeats → set transform to 1×1
-      baseTexInfo?.setTextureTransform({ offset:{u:0,v:0}, rotation:0, scale:{u:1,v:1} });
-      bakedForDims = key;
-    }
-  }
-
-  // Intercept AR button: before handoff to Quick Look, bake texture for current size
-  mv.addEventListener('ar-status', async (ev) => {
-    // When it’s about to start AR, make sure we’re baked for current dimensions.
-    if (ev.detail.status === 'requested') {
-      try { await ensureBakedAndApply(); } catch(e) { console.warn('Bake failed', e); }
-    }
-  });
-
-  mv.addEventListener('load', async () => {
-    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
-    if (mat) {
-      baseTexInfo = mat.pbrMetallicRoughness.baseColorTexture;
-      mat.pbrMetallicRoughness.setMetallicFactor(0);
-      mat.pbrMetallicRoughness.setRoughnessFactor(1);
-      // Load default repo texture immediately for on-page preview
-      mat.pbrMetallicRoughness.setBaseColorTexture(currentTileURL);
-    }
-    applySizeRot();
-  });
-
-  applyBtn.addEventListener('click', async () => {
-    applySizeRot();
-    // Re-bake when size changes so Quick Look gets the correct repeats
-    bakedForDims = null;
-    await ensureBakedAndApply();
-  });
-
-  presetBtn.addEventListener('click', async () => {
-    currentTileURL = './my-carpet.jpg';
-    bakedForDims = null;
-    await ensureBakedAndApply();
-  });
-
-  img.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !mat) return;
-    currentTileURL = URL.createObjectURL(file);
-    bakedForDims = null;
-    await ensureBakedAndApply();
-  });
+  applyBtn.addEventListener('click', applySizeRot);
+  mv.addEventListener('load', applySizeRot);
 </script>
 
 </body>
 </html>
-
