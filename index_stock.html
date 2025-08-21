@@ -3,91 +3,215 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Floor Tile AR — Stock Library</title>
+  <title>Carpet AR — Stock Library</title>
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   <style>
     body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
-    main { max-width:900px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+    main { max-width:1024px; margin:0 auto; padding:16px; display:grid; gap:16px; }
     .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
     label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
-    select, input[type="number"] { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
-    button { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:#e5e7eb; cursor:pointer }
+    select, input[type="number"], button { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
+    button { cursor:pointer }
     model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
     .row { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); }
-    small { color:#94a3b8 }
+    #status { color:#94a3b8; font-size:12px; margin-top:8px }
   </style>
 </head>
 <body>
-  <main>
-    <div class="panel">
-      <label for="design">Choose a carpet design:</label>
-      <select id="design">
-        <option value="Berwick_Whitsome.jpg">Berwick Whitsome</option>
-        <option value="Chesil_Ammonite.jpg">Chesil Ammonite</option>
-        <option value="Chesil_Barnacle.jpg">Chesil Barnacle</option>
-        <option value="Chesil_Coral.jpg">Chesil Coral</option>
-        <option value="Chesil_Driftwood.jpg">Chesil Driftwood</option>
-        <option value="Chesil_Dune.jpg">Chesil Dune</option>
-        <option value="Chesil_Gull.jpg">Chesil Gull</option>
-        <option value="Chesil_Pebble.jpg">Chesil Pebble</option>
-        <option value="Chesil_Seaweed.jpg">Chesil Seaweed</option>
-        <option value="Heritage_Bath.jpg">Heritage Bath</option>
-        <option value="Heritage_Blaise.jpg">Heritage Blaise</option>
-        <option value="Heritage_Castlebourne.jpg">Heritage Castlebourne</option>
-        <option value="Heritage_Dinton.jpg">Heritage Dinton</option>
-        <option value="Heritage_Greystroke.jpg">Heritage Greystroke</option>
-        <option value="Heritage_Midford.jpg">Heritage Midford</option>
-        <option value="Heritage_Watchfield.jpg">Heritage Watchfield</option>
-        <option value="Heritage_Wyke.jpg">Heritage Wyke</option>
-        <option value="test_carpet1.jpg">Test Carpet 1</option>
-      </select>
+<main>
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label>Room width (m)</label>
+        <input id="w" type="number" step="0.1" min="0.5" value="4">
+      </div>
+      <div>
+        <label>Room length (m)</label>
+        <input id="h" type="number" step="0.1" min="0.5" value="6">
+      </div>
+      <div>
+        <label>Rotate (deg)</label>
+        <input id="rot" type="number" step="1" value="0">
+      </div>
+      <div>
+        <label>Choose a carpet design</label>
+        <select id="design"></select>
+      </div>
+      <div style="align-self:end;">
+        <button id="apply">Apply size + tiling</button>
+      </div>
     </div>
+    <div id="status">Idle.</div>
+  </div>
 
-    <model-viewer id="mv"
-      src="./rug_plane_blank.glb"
-      ar
-      ar-modes="scene-viewer quick-look webxr"
-      camera-controls
-      disable-zoom
-      exposure="1"
-      environment-image="neutral"
-      shadow-intensity="0">
-      <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
-    </model-viewer>
-
-    <div class="panel">
-      <small>Select a stock carpet design from the list above.  
-      The chosen image will be tiled at 1×1m across the floor plane and clipped to the entered room size.</small>
-    </div>
-  </main>
+  <model-viewer id="mv"
+    src="./rug_plane_blank.glb"
+    ar
+    ar-modes="scene-viewer quick-look webxr"
+    camera-controls
+    disable-zoom
+    exposure="1"
+    environment-image="neutral"
+    shadow-intensity="0">
+    <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
+  </model-viewer>
+</main>
 
 <script type="module">
-  const mv = document.getElementById('mv');
-  const select = document.getElementById('design');
+  // EXACT filenames in /Textures (capital T)
+  const STOCK = [
+    {name:'Berwick Whitsome',      url:'./Textures/Berwick_Whitsome.jpg'},
+    {name:'Chesil Ammonite',       url:'./Textures/Chesil_Ammonite.jpg'},
+    {name:'Chesil Barnacle',       url:'./Textures/Chesil_Barnacle.jpg'},
+    {name:'Chesil Coral',          url:'./Textures/Chesil_Coral.jpg'},
+    {name:'Chesil Driftwood',      url:'./Textures/Chesil_Driftwood.jpg'},
+    {name:'Chesil Dune',           url:'./Textures/Chesil_Dune.jpg'},
+    {name:'Chesil Gull',           url:'./Textures/Chesil_Gull.jpg'},
+    {name:'Chesil Pebble',         url:'./Textures/Chesil_Pebble.jpg'},
+    {name:'Chesil Seaweed',        url:'./Textures/Chesil_Seaweed.jpg'},
+    {name:'Heritage Bath',         url:'./Textures/Heritage_Bath.jpg'},
+    {name:'Heritage Blaise',       url:'./Textures/Heritage_Blaise.jpg'},
+    {name:'Heritage Castlebourne', url:'./Textures/Heritage_Castlebourne.jpg'},
+    {name:'Heritage Dinton',       url:'./Textures/Heritage_Dinton.jpg'},
+    {name:'Heritage Greystroke',   url:'./Textures/Heritage_Greystroke.jpg'},
+    {name:'Heritage Midford',      url:'./Textures/Heritage_Midford.jpg'},
+    {name:'Heritage Watchfield',   url:'./Textures/Heritage_Watchfield.jpg'},
+    {name:'Heritage Wyke',         url:'./Textures/Heritage_Wyke.jpg'},
+    {name:'Test Carpet 1',         url:'./Textures/test_carpet1.jpg'},
+  ];
 
-  async function applyTexture(file) {
+  // DOM
+  const mv  = document.getElementById('mv');
+  const w   = document.getElementById('w');
+  const h   = document.getElementById('h');
+  const rot = document.getElementById('rot');
+  const designSel = document.getElementById('design');
+  const applyBtn  = document.getElementById('apply');
+  const status    = document.getElementById('status');
+
+  // State
+  let mat = null;
+  let bakedKey = null;
+  let TILE_URL = STOCK[0].url;
+
+  // Build dropdown
+  function populateDropdown() {
+    designSel.innerHTML = '';
+    STOCK.forEach((d,i) => {
+      const opt = document.createElement('option');
+      opt.value = d.url; opt.textContent = d.name;
+      if (i===0) opt.selected = true;
+      designSel.appendChild(opt);
+    });
+  }
+
+  function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
+  function applySizeRot() {
+    const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
+    mv.scale = `${W} 0.001 ${H}`;
+    mv.orientation = `0 ${deg*Math.PI/180} 0`;
+  }
+
+  async function fetchImage(url) {
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    const blob = await res.blob();
+    const obj = URL.createObjectURL(blob);
+    const img = new Image();
+    img.src = obj;
+    await img.decode();
+    return { img, revoke: () => URL.revokeObjectURL(obj) };
+  }
+
+  // Downscale big source tiles to keep baking fast/reliable
+  async function prepareTile(url, maxSide=2048) {
+    const { img, revoke } = await fetchImage(url);
     try {
-      const scene = mv.model?.scene;
-      if (!scene) return console.error("No scene yet");
+      const w0 = img.width, h0 = img.height;
+      if (Math.max(w0, h0) <= maxSide) return img;
+      const scale = maxSide / Math.max(w0, h0);
+      const W = Math.max(2, Math.round(w0 * scale));
+      const H = Math.max(2, Math.round(h0 * scale));
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      c.getContext('2d').drawImage(img, 0, 0, W, H);
+      const out = new Image();
+      out.src = c.toDataURL('image/jpeg', 0.9);
+      await out.decode();
+      return out;
+    } finally { revoke(); }
+  }
 
-      scene.traverse((node) => {
-        if (node.isMesh && node.material && node.material.name === "RugMat") {
-          const tex = new THREE.TextureLoader().load(`./textures/${file}`);
-          tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-          tex.repeat.set(1, 1); // 1×1m tile repeat
-          node.material.map = tex;
-          node.material.needsUpdate = true;
-        }
-      });
-    } catch (err) {
-      console.error("❌ Failed to apply texture", err);
+  // Bake repeats into one bitmap (≤4096 px long side → iOS Quick Look safe)
+  async function bakeTiledTexture(tileURL, roomWm, roomHm) {
+    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile per meter
+    const repsY = Math.max(1, Math.round(roomHm));
+    const tile = await prepareTile(tileURL, 2048);
+
+    const tW = tile.width, tH = tile.height;
+    const wantW = repsX * tW, wantH = repsY * tH;
+
+    const MAX = 4096;
+    const scale = Math.min(1, MAX / Math.max(wantW, wantH));
+    const outW = Math.max(8, Math.floor(wantW * scale));
+    const outH = Math.max(8, Math.floor(wantH * scale));
+    const drawW = Math.max(1, Math.floor(tW * scale));
+    const drawH = Math.max(1, Math.floor(tH * scale));
+
+    const c = document.createElement('canvas');
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext('2d');
+
+    for (let y = 0; y < repsY; y++) {
+      for (let x = 0; x < repsX; x++) {
+        ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
+      }
+    }
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  async function ensureBakedAndApply() {
+    if (!mat) return;
+    const Wm = clamp(w.value), Hm = clamp(h.value);
+    const key = `${Wm}x${Hm}:${TILE_URL}`;
+    if (bakedKey === key) return;
+
+    status.textContent = 'Baking tiled texture…';
+    try {
+      const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
+      const tex = await mv.createTexture(bakedURL);
+      mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
+      bakedKey = key;
+      status.textContent = 'Texture applied ✅';
+    } catch (e) {
+      console.error('Bake/apply failed:', e);
+      status.textContent = '❌ Failed to apply texture.';
     }
   }
 
-  // On dropdown change → apply new carpet texture
-  select.addEventListener('change', (e) => applyTexture(e.target.value));
-  mv.addEventListener('load', () => applyTexture(select.value));
-</script>
+  // Events
+  mv.addEventListener('load', () => {
+    mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
+    applySizeRot();
+    if (mat) ensureBakedAndApply();
+  });
 
+  applyBtn.addEventListener('click', async () => {
+    applySizeRot();
+    bakedKey = null;
+    await ensureBakedAndApply();
+  });
+
+  designSel.addEventListener('change', async (e) => {
+    TILE_URL = e.target.value;
+    bakedKey = null;
+    await ensureBakedAndApply();
+  });
+
+  // init
+  populateDropdown();
+  // set default
+  TILE_URL = designSel.value || STOCK[0].url;
+</script>
 </body>
 </html>
