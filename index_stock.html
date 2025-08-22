@@ -6,59 +6,84 @@
   <title>Carpet AR — Stock Library</title>
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   <style>
-    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0c10; color:#e5e7eb; }
+    :root { --card:#111318; --stroke:#22252c; --bg:#0b0c10; --text:#e5e7eb; --muted:#94a3b8; }
+    *{box-sizing:border-box}
+    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+    header { position:sticky; top:0; z-index:10; background:var(--bg); border-bottom:1px solid var(--stroke); }
+    .bar { max-width:1024px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:12px; }
+    .logo { width:36px; height:36px; border-radius:999px; background:#0a0b0f; display:grid; place-items:center; }
+    .logo img { width:28px; height:28px; display:block; }
+    .spacer { flex:1 }
+    .cta { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text); cursor:pointer }
     main { max-width:1024px; margin:0 auto; padding:16px; display:grid; gap:16px; }
-    .panel { background:#111318; border:1px solid #22252c; border-radius:14px; padding:16px; }
-    label { display:block; font-size:14px; margin:10px 0 6px; color:#cbd5e1 }
-    select, input[type="number"], button { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:#e5e7eb }
-    button { cursor:pointer }
-    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid #22252c; background:#0a0b0f; }
+    .panel { background:var(--card); border:1px solid var(--stroke); border-radius:14px; padding:16px; }
     .row { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); }
-    #status { color:#94a3b8; font-size:12px; margin-top:8px }
+    label { display:block; font-size:14px; margin:8px 0 6px; color:#cbd5e1 }
+    select, input[type="number"] { width:100%; padding:10px; border-radius:10px; border:1px solid #2a2f39; background:#0f1116; color:var(--text) }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text); cursor:pointer }
+    #status { color:var(--muted); font-size:12px; margin-top:8px }
+
+    model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid var(--stroke); background:#0a0b0f; position:relative; }
+    /* move the AR button to the top INSIDE the viewer */
+    model-viewer [slot="ar-button"] {
+      position:absolute; top:12px; right:12px; left:auto; bottom:auto;
+      padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text);
+    }
   </style>
 </head>
 <body>
-<main>
-  <div class="panel">
-    <div class="row">
-      <div>
-        <label>Room width (m)</label>
-        <input id="w" type="number" step="0.1" min="0.5" value="4">
-      </div>
-      <div>
-        <label>Room length (m)</label>
-        <input id="h" type="number" step="0.1" min="0.5" value="6">
-      </div>
-      <div>
-        <label>Rotate (deg)</label>
-        <input id="rot" type="number" step="1" value="0">
-      </div>
-      <div>
-        <label>Choose a carpet design</label>
-        <select id="design"></select>
-      </div>
-      <div style="align-self:end;">
-        <button id="apply">Apply size + tiling</button>
-      </div>
+  <!-- Sticky top bar with logo and an always-visible AR button -->
+  <header>
+    <div class="bar">
+      <div class="logo"><img src="./logo.png" alt="Company logo"></div>
+      <div style="font-weight:600">Carpet AR — Stock Library (Demo)</div>
+      <div class="spacer"></div>
+      <button class="cta" id="arTopBtn">View in AR</button>
     </div>
-    <div id="status">Idle.</div>
-  </div>
+  </header>
 
-  <model-viewer id="mv"
-    src="./rug_plane_blank.glb"
-    ar
-    ar-modes="scene-viewer quick-look webxr"
-    camera-controls
-    disable-zoom
-    exposure="1"
-    environment-image="neutral"
-    shadow-intensity="0">
-    <button slot="ar-button" style="position:absolute; left:16px; bottom:16px;">View in AR</button>
-  </model-viewer>
-</main>
+  <main>
+    <div class="panel">
+      <div class="row">
+        <div>
+          <label>Room width (m)</label>
+          <input id="w" type="number" step="0.1" min="0.5" value="4">
+        </div>
+        <div>
+          <label>Room length (m)</label>
+          <input id="h" type="number" step="0.1" min="0.5" value="6">
+        </div>
+        <div>
+          <label>Rotate (deg)</label>
+          <input id="rot" type="number" step="1" value="0">
+        </div>
+        <div>
+          <label>Choose a carpet</label>
+          <select id="design"></select>
+        </div>
+        <div style="align-self:end;">
+          <button id="apply">Apply size + tiling</button>
+        </div>
+      </div>
+      <div id="status">Ready.</div>
+    </div>
+
+    <model-viewer id="mv"
+      src="./rug_plane_blank.glb"
+      ar
+      ar-modes="scene-viewer quick-look webxr"
+      camera-controls
+      disable-zoom
+      exposure="1"
+      environment-image="neutral"
+      shadow-intensity="0">
+      <!-- AR button now at the TOP of the viewer -->
+      <button slot="ar-button">View in AR</button>
+    </model-viewer>
+  </main>
 
 <script type="module">
-  // EXACT filenames in /Textures (capital T)
+  // === Stock list: exact filenames in /Textures (capital T) ===
   const STOCK = [
     {name:'Berwick Whitsome',      url:'./Textures/Berwick_Whitsome.jpg'},
     {name:'Chesil Ammonite',       url:'./Textures/Chesil_Ammonite.jpg'},
@@ -80,7 +105,7 @@
     {name:'Test Carpet 1',         url:'./Textures/test_carpet1.jpg'},
   ];
 
-  // DOM
+  // DOM refs
   const mv  = document.getElementById('mv');
   const w   = document.getElementById('w');
   const h   = document.getElementById('h');
@@ -88,6 +113,7 @@
   const designSel = document.getElementById('design');
   const applyBtn  = document.getElementById('apply');
   const status    = document.getElementById('status');
+  const arTopBtn  = document.getElementById('arTopBtn');
 
   // State
   let mat = null;
@@ -123,34 +149,28 @@
     return { img, revoke: () => URL.revokeObjectURL(obj) };
   }
 
-  // Downscale big source tiles to keep baking fast/reliable
   async function prepareTile(url, maxSide=2048) {
     const { img, revoke } = await fetchImage(url);
     try {
       const w0 = img.width, h0 = img.height;
       if (Math.max(w0, h0) <= maxSide) return img;
-      const scale = maxSide / Math.max(w0, h0);
-      const W = Math.max(2, Math.round(w0 * scale));
-      const H = Math.max(2, Math.round(h0 * scale));
-      const c = document.createElement('canvas');
-      c.width = W; c.height = H;
+      const s = maxSide / Math.max(w0, h0);
+      const W = Math.max(2, Math.round(w0*s)), H = Math.max(2, Math.round(h0*s));
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
       c.getContext('2d').drawImage(img, 0, 0, W, H);
-      const out = new Image();
-      out.src = c.toDataURL('image/jpeg', 0.9);
-      await out.decode();
+      const out = new Image(); out.src = c.toDataURL('image/jpeg', 0.9); await out.decode();
       return out;
     } finally { revoke(); }
   }
 
-  // Bake repeats into one bitmap (≤4096 px long side → iOS Quick Look safe)
+  // Current V2 tiling bake (repeat to room size, clamp ≤4096)
   async function bakeTiledTexture(tileURL, roomWm, roomHm) {
-    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile per meter
+    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile ≈ 1m (V3 will make this exact)
     const repsY = Math.max(1, Math.round(roomHm));
     const tile = await prepareTile(tileURL, 2048);
 
     const tW = tile.width, tH = tile.height;
     const wantW = repsX * tW, wantH = repsY * tH;
-
     const MAX = 4096;
     const scale = Math.min(1, MAX / Math.max(wantW, wantH));
     const outW = Math.max(8, Math.floor(wantW * scale));
@@ -158,15 +178,10 @@
     const drawW = Math.max(1, Math.floor(tW * scale));
     const drawH = Math.max(1, Math.floor(tH * scale));
 
-    const c = document.createElement('canvas');
-    c.width = outW; c.height = outH;
+    const c = document.createElement('canvas'); c.width = outW; c.height = outH;
     const ctx = c.getContext('2d');
-
-    for (let y = 0; y < repsY; y++) {
-      for (let x = 0; x < repsX; x++) {
-        ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
-      }
-    }
+    for (let y = 0; y < repsY; y++) for (let x = 0; x < repsX; x++)
+      ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
     return c.toDataURL('image/jpeg', 0.92);
   }
 
@@ -208,9 +223,13 @@
     await ensureBakedAndApply();
   });
 
-  // init
+  // Top-bar AR button: no scrolling needed
+  arTopBtn.addEventListener('click', () => {
+    try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
+  });
+
+  // Init
   populateDropdown();
-  // set default
   TILE_URL = designSel.value || STOCK[0].url;
 </script>
 </body>
