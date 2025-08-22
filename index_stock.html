@@ -85,7 +85,7 @@
           <button id="apply">Apply size + tiling</button>
         </div>
       </div>
-      <div id="status">Ready.</div>
+      <div id="status">Please select a carpet from the dropdown.</div>
     </div>
 
     <model-viewer id="mv"
@@ -136,9 +136,9 @@
   const arTopBtn  = document.getElementById('arTopBtn');
 
   // State
-  let mat = null;
-  let bakedKey = null;
-  let TILE_URL = STOCK[0].url;
+let mat = null;
+let bakedKey = null;
+let TILE_URL = null;   // start with no texture
 
   // --- helpers ---
   function populateDropdown() {
@@ -223,33 +223,28 @@
     return c.toDataURL('image/jpeg', 0.92);
   }
 
-  async function ensureBakedAndApply() {
-    if (!mat) return;
-    const Wm = clamp(w.value), Hm = clamp(h.value);
-    // Resolve the image URL first (gives a helpful error if missing)
-    let resolvedURL;
-    try {
-      resolvedURL = await resolveTextureURL(TILE_URL);
-    } catch (e) {
-      console.error(e);
-      status.textContent = '❌ ' + e.message;
-      return;
-    }
-    const key = `${Wm}x${Hm}:${resolvedURL}`;
-    if (bakedKey === key) return;
-
-    status.textContent = 'Baking tiled texture…';
-    try {
-      const bakedURL = await bakeTiledTexture(resolvedURL, Wm, Hm);
-      const tex = await mv.createTexture(bakedURL);
-      mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
-      bakedKey = key;
-      status.textContent = 'Texture applied ✅';
-    } catch (e) {
-      console.error('Bake/apply failed:', e);
-      status.textContent = '❌ Failed to apply texture. See console.';
-    }
+ async function ensureBakedAndApply() {
+  if (!mat) return;
+  if (!TILE_URL) {
+    status.textContent = 'Please select a carpet from the dropdown.';
+    return;
   }
+  const Wm = clamp(w.value), Hm = clamp(h.value);
+  const key = `${Wm}x${Hm}:${TILE_URL}`;
+  if (bakedKey === key) return;
+
+  status.textContent = 'Baking tiled texture…';
+  try {
+    const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
+    const tex = await mv.createTexture(bakedURL);
+    mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
+    bakedKey = key;
+    status.textContent = 'Texture applied ✅';
+  } catch (e) {
+    console.error('Bake/apply failed:', e);
+    status.textContent = '❌ Failed to apply texture.';
+  }
+}
 
   // Events
   mv.addEventListener('load', () => {
@@ -278,8 +273,9 @@
   }
 
   // Init
-  populateDropdown();
-  TILE_URL = designSel.value || STOCK[0].url;
+populateDropdown();
+// Don’t auto-select a carpet; leave it blank
+TILE_URL = null;
 </script>
 
 </body>
