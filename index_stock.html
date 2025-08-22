@@ -32,7 +32,6 @@
     #status { color:var(--muted); font-size:12px; margin-top:8px }
 
     model-viewer { width:100%; height:60vh; border-radius:14px; border:1px solid var(--stroke); background:#0a0b0f; position:relative; }
-    /* move the AR button to the top INSIDE the viewer */
     model-viewer [slot="ar-button"] {
       position:absolute; top:12px; right:12px; left:auto; bottom:auto;
       padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text);
@@ -75,12 +74,24 @@
           <label>Rotate (deg)</label>
           <input id="rot" type="number" step="1" value="0">
         </div>
+
         <div>
           <label>Choose a carpet</label>
           <select id="design">
             <option disabled selected>Loading designs…</option>
           </select>
         </div>
+
+        <!-- NEW: Lighting preset -->
+        <div>
+          <label>Lighting</label>
+          <select id="lighting">
+            <option value="natural" selected>Natural</option>
+            <option value="bulb">Bulb (warm)</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+
         <div style="align-self:end;">
           <button id="apply">Apply size + tiling</button>
         </div>
@@ -97,7 +108,6 @@
       exposure="1"
       environment-image="neutral"
       shadow-intensity="0">
-      <!-- AR button now at the TOP of the viewer -->
       <button slot="ar-button">View in AR</button>
     </model-viewer>
   </main>
@@ -130,61 +140,40 @@
   const w   = document.getElementById('w');
   const h   = document.getElementById('h');
   const rot = document.getElementById('rot');
-  const designSel = document.getElementById('design');
-  const applyBtn  = document.getElementById('apply');
-  const status    = document.getElementById('status');
-  const arTopBtn  = document.getElementById('arTopBtn');
+  const designSel   = document.getElementById('design');
+  const lightingSel = document.getElementById('lighting'); // NEW
+  const applyBtn    = document.getElementById('apply');
+  const status      = document.getElementById('status');
+  const arTopBtn    = document.getElementById('arTopBtn');
 
   // State
-let mat = null;
-let bakedKey = null;
-let TILE_URL = null;   // start with no texture
+  let mat = null;
+  let bakedKey = null;
+  let TILE_URL = null;   // start with no texture
 
-  // --- helpers ---
+  // Build dropdown (with neutral placeholder)
   function populateDropdown() {
-  if (!designSel) return;
-  designSel.innerHTML = '';
+    if (!designSel) return;
+    designSel.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = '-- Select Design --';
+    ph.disabled = true;
+    ph.selected = true;
+    designSel.appendChild(ph);
+    STOCK.forEach((d) => {
+      const opt = document.createElement('option');
+      opt.value = d.url;
+      opt.textContent = d.name;
+      designSel.appendChild(opt);
+    });
+  }
 
-  // Add a neutral placeholder at the top
-  const ph = document.createElement('option');
-  ph.value = '';
-  ph.textContent = '-- Select Design --';
-  ph.disabled = true;
-  ph.selected = true;
-  designSel.appendChild(ph);
-
-  // Then add all stock carpets
-  STOCK.forEach((d) => {
-    const opt = document.createElement('option');
-    opt.value = d.url;
-    opt.textContent = d.name;
-    designSel.appendChild(opt);
-  });
-}
   function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
   function applySizeRot() {
     const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
     mv.scale = `${W} 0.001 ${H}`;
     mv.orientation = `0 ${deg*Math.PI/180} 0`;
-  }
-
-  // Try to resolve the real URL (handles .jpg/.JPG/.jpeg/.png)
-  async function resolveTextureURL(url) {
-    const candidates = [url];
-    if (url.endsWith('.jpg')) {
-      candidates.push(url.replace(/\.jpg$/i, '.JPG'));
-      candidates.push(url.replace(/\.jpg$/i, '.jpeg'));
-      candidates.push(url.replace(/\.jpg$/i, '.png'));
-    } else {
-      candidates.push(url + '.jpg', url + '.JPG', url + '.jpeg', url + '.png');
-    }
-    for (const u of candidates) {
-      try {
-        const res = await fetch(u + (u.includes('?')?'&':'?') + 'v=' + Date.now(), { method:'HEAD', cache:'no-store' });
-        if (res.ok) return u;
-      } catch(_) {}
-    }
-    throw new Error(`Image not found: tried ${candidates.join(', ')}`);
   }
 
   async function fetchImage(url) {
@@ -212,7 +201,8 @@ let TILE_URL = null;   // start with no texture
     } finally { revoke(); }
   }
 
-  async function bakeTiledTexture(tileURL, roomWm, roomHm) {
+  // Bake with lighting look
+  async function bakeTiledTexture(tileURL, roomWm, roomHm, lighting='natural') {
     const repsX = Math.max(1, Math.round(roomWm));
     const repsY = Math.max(1, Math.round(roomHm));
     const tile = await prepareTile(tileURL, 2048);
@@ -228,33 +218,53 @@ let TILE_URL = null;   // start with no texture
 
     const c = document.createElement('canvas'); c.width = outW; c.height = outH;
     const ctx = c.getContext('2d');
-    for (let y = 0; y < repsY; y++) for (let x = 0; x < repsX; x++)
-      ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
+
+    // subtle, believable presets
+    switch (lighting) {
+      case 'bulb':
+        ctx.filter = 'brightness(1.05) saturate(1.08) sepia(0.08) hue-rotate(5deg)';
+        break;
+      case 'dark':
+        ctx.filter = 'brightness(0.85) contrast(0.95) saturate(0.95)';
+        break;
+      case 'natural':
+      default:
+        ctx.filter = 'none';
+    }
+
+    for (let y = 0; y < repsY; y++) {
+      for (let x = 0; x < repsX; x++) {
+        ctx.drawImage(tile, x*drawW, y*drawH, drawW, drawH);
+      }
+    }
+    ctx.filter = 'none';
     return c.toDataURL('image/jpeg', 0.92);
   }
 
- async function ensureBakedAndApply() {
-  if (!mat) return;
-  if (!TILE_URL) {
-    status.textContent = 'Please select a carpet from the dropdown.';
-    return;
-  }
-  const Wm = clamp(w.value), Hm = clamp(h.value);
-  const key = `${Wm}x${Hm}:${TILE_URL}`;
-  if (bakedKey === key) return;
+  async function ensureBakedAndApply() {
+    if (!mat) return;
+    if (!TILE_URL) {
+      status.textContent = 'Please select a carpet from the dropdown.';
+      return;
+    }
 
-  status.textContent = 'Baking tiled texture…';
-  try {
-    const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
-    const tex = await mv.createTexture(bakedURL);
-    mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
-    bakedKey = key;
-    status.textContent = 'Texture applied ✅';
-  } catch (e) {
-    console.error('Bake/apply failed:', e);
-    status.textContent = '❌ Failed to apply texture.';
+    const Wm = clamp(w.value), Hm = clamp(h.value);
+    const lighting = (lightingSel?.value) || 'natural';
+    const key = `${Wm}x${Hm}:${TILE_URL}:L=${lighting}`;
+    if (bakedKey === key) return;
+
+    status.textContent = 'Baking tiled texture…';
+    try {
+      const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm, lighting);
+      const tex = await mv.createTexture(bakedURL);
+      mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
+      bakedKey = key;
+      status.textContent = 'Texture applied ✅';
+    } catch (e) {
+      console.error('Bake/apply failed:', e);
+      status.textContent = '❌ Failed to apply texture.';
+    }
   }
-}
 
   // Events
   mv.addEventListener('load', () => {
@@ -265,17 +275,24 @@ let TILE_URL = null;   // start with no texture
 
   applyBtn.addEventListener('click', async () => {
     applySizeRot();
+    if (!TILE_URL && designSel && designSel.value) TILE_URL = designSel.value;
     bakedKey = null;
     await ensureBakedAndApply();
   });
 
   designSel.addEventListener('change', async (e) => {
-    TILE_URL = e.target.value;
+    TILE_URL = e.target.value || null;
     bakedKey = null;
     await ensureBakedAndApply();
   });
 
-  // Top-bar AR button (guard in case header gets edited again)
+  // NEW: re-bake when lighting preset changes
+  lightingSel.addEventListener('change', async () => {
+    bakedKey = null;
+    await ensureBakedAndApply();
+  });
+
+  // Top-bar AR button (guard)
   if (arTopBtn) {
     arTopBtn.addEventListener('click', () => {
       try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
@@ -283,9 +300,9 @@ let TILE_URL = null;   // start with no texture
   }
 
   // Init
-populateDropdown();
-TILE_URL = null;  // start white, no carpet
-status.textContent = 'Please select a carpet from the dropdown.';
+  populateDropdown();
+  TILE_URL = null;  // start white, no carpet
+  status.textContent = 'Please select a carpet from the dropdown.';
 </script>
 
 </body>
