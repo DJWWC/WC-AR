@@ -140,7 +140,7 @@
   let bakedKey = null;
   let TILE_URL = STOCK[0].url;
 
-  // Build dropdown
+  // --- helpers ---
   function populateDropdown() {
     if (!designSel) return;
     designSel.innerHTML = '';
@@ -151,12 +151,30 @@
       designSel.appendChild(opt);
     });
   }
-
   function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
   function applySizeRot() {
     const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
     mv.scale = `${W} 0.001 ${H}`;
     mv.orientation = `0 ${deg*Math.PI/180} 0`;
+  }
+
+  // Try to resolve the real URL (handles .jpg/.JPG/.jpeg/.png)
+  async function resolveTextureURL(url) {
+    const candidates = [url];
+    if (url.endsWith('.jpg')) {
+      candidates.push(url.replace(/\.jpg$/i, '.JPG'));
+      candidates.push(url.replace(/\.jpg$/i, '.jpeg'));
+      candidates.push(url.replace(/\.jpg$/i, '.png'));
+    } else {
+      candidates.push(url + '.jpg', url + '.JPG', url + '.jpeg', url + '.png');
+    }
+    for (const u of candidates) {
+      try {
+        const res = await fetch(u + (u.includes('?')?'&':'?') + 'v=' + Date.now(), { method:'HEAD', cache:'no-store' });
+        if (res.ok) return u;
+      } catch(_) {}
+    }
+    throw new Error(`Image not found: tried ${candidates.join(', ')}`);
   }
 
   async function fetchImage(url) {
@@ -185,7 +203,7 @@
   }
 
   async function bakeTiledTexture(tileURL, roomWm, roomHm) {
-    const repsX = Math.max(1, Math.round(roomWm)); // V3 will make this exact by meters
+    const repsX = Math.max(1, Math.round(roomWm));
     const repsY = Math.max(1, Math.round(roomHm));
     const tile = await prepareTile(tileURL, 2048);
 
@@ -208,19 +226,28 @@
   async function ensureBakedAndApply() {
     if (!mat) return;
     const Wm = clamp(w.value), Hm = clamp(h.value);
-    const key = `${Wm}x${Hm}:${TILE_URL}`;
+    // Resolve the image URL first (gives a helpful error if missing)
+    let resolvedURL;
+    try {
+      resolvedURL = await resolveTextureURL(TILE_URL);
+    } catch (e) {
+      console.error(e);
+      status.textContent = '❌ ' + e.message;
+      return;
+    }
+    const key = `${Wm}x${Hm}:${resolvedURL}`;
     if (bakedKey === key) return;
 
     status.textContent = 'Baking tiled texture…';
     try {
-      const bakedURL = await bakeTiledTexture(TILE_URL, Wm, Hm);
+      const bakedURL = await bakeTiledTexture(resolvedURL, Wm, Hm);
       const tex = await mv.createTexture(bakedURL);
       mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
       bakedKey = key;
       status.textContent = 'Texture applied ✅';
     } catch (e) {
       console.error('Bake/apply failed:', e);
-      status.textContent = '❌ Failed to apply texture.';
+      status.textContent = '❌ Failed to apply texture. See console.';
     }
   }
 
@@ -243,7 +270,7 @@
     await ensureBakedAndApply();
   });
 
-  // Top-bar AR button: no scrolling needed (guard if not found)
+  // Top-bar AR button (guard in case header gets edited again)
   if (arTopBtn) {
     arTopBtn.addEventListener('click', () => {
       try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
