@@ -9,12 +9,20 @@
     :root { --card:#111318; --stroke:#22252c; --bg:#0b0c10; --text:#e5e7eb; --muted:#94a3b8; }
     *{box-sizing:border-box}
     body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+
+    /* header */
     header { position:sticky; top:0; z-index:10; background:var(--bg); border-bottom:1px solid var(--stroke); }
-    .bar { max-width:1024px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:12px; }
+    .bar { max-width:1024px; margin:0 auto; padding:10px 16px;
+           display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { display:flex; align-items:center; gap:12px; min-width:0; }
     .logo { width:36px; height:36px; border-radius:999px; background:#0a0b0f; display:grid; place-items:center; }
     .logo img { width:28px; height:28px; display:block; }
-    .spacer { flex:1 }
-    .cta { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text); cursor:pointer }
+    .titles { display:flex; flex-direction:column; line-height:1.2; }
+    .title { font-weight:600; }
+    .subtitle { font-weight:400; font-size:.9em; color:#cbd5e1; }
+    .cta { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text); cursor:pointer; white-space:nowrap; }
+
+    /* main */
     main { max-width:1024px; margin:0 auto; padding:16px; display:grid; gap:16px; }
     .panel { background:var(--card); border:1px solid var(--stroke); border-radius:14px; padding:16px; }
     .row { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); }
@@ -29,19 +37,27 @@
       position:absolute; top:12px; right:12px; left:auto; bottom:auto;
       padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text);
     }
+
+    @media (max-width:560px){
+      .title { font-size:14px; }
+      .subtitle { font-size:12px; }
+      .cta { padding:8px 12px; font-size:14px; }
+    }
   </style>
 </head>
 <body>
   <!-- Sticky top bar with logo and an always-visible AR button -->
   <header>
     <div class="bar">
-      <div class="logo"><img src="./logo.png" alt="Company logo"></div>
-      <div style="font-weight:600; line-height:1.2; text-align:left;">
-  Wilton Carpets AR (Demo)<br>
-  <span style="font-weight:400; font-size:0.9em; color:#cbd5e1;">
-    Tufted Stock Library
-  </span>
-</div>
+      <div class="brand">
+        <div class="logo"><img src="./logo.png" alt="Company logo"></div>
+        <div class="titles">
+          <div class="title">Wilton Carpets AR (Demo)</div>
+          <div class="subtitle">Tufted Stock Library</div>
+        </div>
+      </div>
+      <button class="cta" id="arTopBtn">View in AR</button>
+    </div>
   </header>
 
   <main>
@@ -61,7 +77,9 @@
         </div>
         <div>
           <label>Choose a carpet</label>
-          <select id="design"></select>
+          <select id="design">
+            <option disabled selected>Loading designs…</option>
+          </select>
         </div>
         <div style="align-self:end;">
           <button id="apply">Apply size + tiling</button>
@@ -124,6 +142,7 @@
 
   // Build dropdown
   function populateDropdown() {
+    if (!designSel) return;
     designSel.innerHTML = '';
     STOCK.forEach((d,i) => {
       const opt = document.createElement('option');
@@ -165,9 +184,8 @@
     } finally { revoke(); }
   }
 
-  // Current V2 tiling bake (repeat to room size, clamp ≤4096)
   async function bakeTiledTexture(tileURL, roomWm, roomHm) {
-    const repsX = Math.max(1, Math.round(roomWm)); // 1 tile ≈ 1m (V3 will make this exact)
+    const repsX = Math.max(1, Math.round(roomWm)); // V3 will make this exact by meters
     const repsY = Math.max(1, Math.round(roomHm));
     const tile = await prepareTile(tileURL, 2048);
 
@@ -225,10 +243,12 @@
     await ensureBakedAndApply();
   });
 
-  // Top-bar AR button: no scrolling needed
-  arTopBtn.addEventListener('click', () => {
-    try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
-  });
+  // Top-bar AR button: no scrolling needed (guard if not found)
+  if (arTopBtn) {
+    arTopBtn.addEventListener('click', () => {
+      try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
+    });
+  }
 
   // Init
   populateDropdown();
