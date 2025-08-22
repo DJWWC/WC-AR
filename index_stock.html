@@ -142,15 +142,25 @@ let TILE_URL = null;   // start with no texture
 
   // --- helpers ---
   function populateDropdown() {
-    if (!designSel) return;
-    designSel.innerHTML = '';
-    STOCK.forEach((d,i) => {
-      const opt = document.createElement('option');
-      opt.value = d.url; opt.textContent = d.name;
-      if (i===0) opt.selected = true;
-      designSel.appendChild(opt);
-    });
-  }
+  if (!designSel) return;
+  designSel.innerHTML = '';
+
+  // Add a neutral placeholder at the top
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = '-- Select Design --';
+  ph.disabled = true;
+  ph.selected = true;
+  designSel.appendChild(ph);
+
+  // Then add all stock carpets
+  STOCK.forEach((d) => {
+    const opt = document.createElement('option');
+    opt.value = d.url;
+    opt.textContent = d.name;
+    designSel.appendChild(opt);
+  });
+}
   function clamp(n, a=0.5, b=100) { n = Number(n)||0; return Math.min(b, Math.max(a, n)); }
   function applySizeRot() {
     const W = clamp(w.value), H = clamp(h.value), deg = Number(rot.value)||0;
@@ -274,8 +284,8 @@ let TILE_URL = null;   // start with no texture
 
   // Init
 populateDropdown();
-// Don’t auto-select a carpet; leave it blank
-TILE_URL = null;
+TILE_URL = null;  // start white, no carpet
+status.textContent = 'Please select a carpet from the dropdown.';
 </script>
 
 </body>
