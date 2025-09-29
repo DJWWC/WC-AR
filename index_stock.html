@@ -10,10 +10,8 @@
     *{box-sizing:border-box}
     body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
 
-    /* header */
     header { position:sticky; top:0; z-index:10; background:var(--bg); border-bottom:1px solid var(--stroke); }
-    .bar { max-width:1024px; margin:0 auto; padding:10px 16px;
-           display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .bar { max-width:1024px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .brand { display:flex; align-items:center; gap:12px; min-width:0; }
     .logo { width:36px; height:36px; border-radius:999px; background:#0a0b0f; display:grid; place-items:center; }
     .logo img { width:28px; height:28px; display:block; }
@@ -22,7 +20,6 @@
     .subtitle { font-weight:400; font-size:.9em; color:#cbd5e1; }
     .cta { padding:10px 14px; border-radius:10px; border:1px solid #334155; background:#1f2937; color:var(--text); cursor:pointer; white-space:nowrap; }
 
-    /* main */
     main { max-width:1024px; margin:0 auto; padding:16px; display:grid; gap:16px; }
     .panel { background:var(--card); border:1px solid var(--stroke); border-radius:14px; padding:16px; }
     .row { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); }
@@ -45,7 +42,6 @@
   </style>
 </head>
 <body>
-  <!-- Sticky top bar with logo and an always-visible AR button -->
   <header>
     <div class="bar">
       <div class="brand">
@@ -82,7 +78,6 @@
           </select>
         </div>
 
-        <!-- NEW: Lighting preset -->
         <div>
           <label>Lighting</label>
           <select id="lighting">
@@ -102,7 +97,7 @@
     <model-viewer id="mv"
       src="./rug_plane_blank.glb"
       ar
-      ar-modes="scene-viewer quick-look webxr"
+      ar-modes="webxr scene-viewer quick-look"  <!-- WebXR first (Android), Quick Look still works on iOS -->
       camera-controls
       disable-zoom
       exposure="1"
@@ -113,7 +108,6 @@
   </main>
 
 <script type="module">
-  // === Stock list: exact filenames in /Textures (capital T) ===
   const STOCK = [
     {name:'Berwick Whitsome',      url:'./Textures/Berwick_Whitsome.jpg'},
     {name:'Chesil Ammonite',       url:'./Textures/Chesil_Ammonite.jpg'},
@@ -141,17 +135,27 @@
   const h   = document.getElementById('h');
   const rot = document.getElementById('rot');
   const designSel   = document.getElementById('design');
-  const lightingSel = document.getElementById('lighting'); // NEW
+  const lightingSel = document.getElementById('lighting');
   const applyBtn    = document.getElementById('apply');
   const status      = document.getElementById('status');
   const arTopBtn    = document.getElementById('arTopBtn');
+
+  // Force WebXR on Android so Scene Viewer doesn't drop our dynamic texture
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    mv.arModes = 'webxr';
+  }
+
+  // (Optional) log AR status/mode for debugging
+  mv.addEventListener('ar-status', (ev) => {
+    console.log('[AR status]', ev.detail.status, 'mode =', mv.arMode);
+  });
 
   // State
   let mat = null;
   let bakedKey = null;
   let TILE_URL = null;   // start with no texture
 
-  // Build dropdown (with neutral placeholder)
   function populateDropdown() {
     if (!designSel) return;
     designSel.innerHTML = '';
@@ -266,7 +270,6 @@
     }
   }
 
-  // Events
   mv.addEventListener('load', () => {
     mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
     applySizeRot();
@@ -286,22 +289,19 @@
     await ensureBakedAndApply();
   });
 
-  // NEW: re-bake when lighting preset changes
   lightingSel.addEventListener('change', async () => {
     bakedKey = null;
     await ensureBakedAndApply();
   });
 
-  // Top-bar AR button (guard)
   if (arTopBtn) {
     arTopBtn.addEventListener('click', () => {
       try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
     });
   }
 
-  // Init
   populateDropdown();
-  TILE_URL = null;  // start white, no carpet
+  TILE_URL = null;
   status.textContent = 'Please select a carpet from the dropdown.';
 </script>
 
