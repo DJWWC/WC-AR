@@ -95,19 +95,19 @@
       <div id="caps" style="color:#94a3b8;font-size:12px;margin-top:4px"></div>
     </div>
 
-<model-viewer
-  id="mv"
-  src="https://djwwc.github.io/WC-AR/rug_plane_blank.glb"
-  ar
-  ar-modes="scene-viewer quick-look webxr"
-  ar-placement="floor"
-  camera-controls
-  disable-zoom
-  exposure="1"
-  environment-image="neutral"
-  shadow-intensity="0">
-  <button slot="ar-button">View in AR</button>
-</model-viewer>
+    <model-viewer
+      id="mv"
+      src="https://djwwc.github.io/WC-AR/rug_plane_blank.glb"
+      ar
+      ar-modes="scene-viewer quick-look webxr"
+      ar-placement="floor"
+      camera-controls
+      disable-zoom
+      exposure="1"
+      environment-image="neutral"
+      shadow-intensity="0">
+      <button slot="ar-button">View in AR</button>
+    </model-viewer>
 
   </main>
 
@@ -145,28 +145,10 @@
   const arTopBtn    = document.getElementById('arTopBtn');
   const capsEl      = document.getElementById('caps');
 
-mv.addEventListener('ar-status', (e) => {
-  console.log('AR status:', e.detail.status, 'mode =', mv.arMode);
-});
+  // Absolute GLB to feed Scene Viewer (native AR) every time we launch AR
+  const ABS_GLB = "https://djwwc.github.io/WC-AR/rug_plane_blank.glb";
 
-  // (Optional) log AR status/mode for debugging + show a helpful message
-  let lastBakedURL = null; // remember the most recent baked texture (data URL) for messaging
-  mv.addEventListener('ar-status', (ev) => {
-    const mode = mv.arMode; // 'scene-viewer' | 'quick-look' | 'webxr' | undefined
-    console.log('[AR status]', ev.detail.status, 'mode =', mode);
-    if (ev.detail.status === 'session-started') {
-      if (mode === 'scene-viewer' || mode === 'quick-look') {
-        status.textContent = 'AR via native viewer. Occlusion handled by device. Note: live-baked textures can’t be passed to native viewers.';
-      } else if (mode === 'webxr') {
-        status.textContent = 'AR via WebXR (in page). Occlusion depends on Depth API support on this device.';
-      }
-    }
-    if (ev.detail.status === 'failed' || ev.detail.status === 'not-presenting') {
-      status.textContent = 'AR session ended.';
-    }
-  });
-
-  // Simple capability hint (optional)
+  // (Optional) capability hint
   (async () => {
     const gl2 = document.createElement('canvas').getContext('webgl2', { xrCompatible:true });
     const xr = 'xr' in navigator;
@@ -180,6 +162,7 @@ mv.addEventListener('ar-status', (e) => {
   let mat = null;
   let bakedKey = null;
   let TILE_URL = null;   // start with no texture
+  let lastBakedURL = null; // remember last baked preview texture (data URL)
 
   function populateDropdown() {
     if (!designSel) return;
@@ -288,11 +271,46 @@ mv.addEventListener('ar-status', (e) => {
       const tex = await mv.createTexture(bakedURL);
       mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
       bakedKey = key;
-      lastBakedURL = bakedURL; // remember for messaging / potential future use
+      lastBakedURL = bakedURL; // remember for preview restore
       status.textContent = 'Texture applied ✅';
     } catch (e) {
       console.error('Bake/apply failed:', e);
       status.textContent = '❌ Failed to apply texture.';
+    }
+  }
+
+  // Restore the preview’s baked texture after returning from native AR
+  async function restoreRuntimeTexture() {
+    if (lastBakedURL && mat) {
+      try {
+        const tex = await mv.createTexture(lastBakedURL);
+        mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
+        status.textContent = 'Texture restored in preview.';
+      } catch (e) { console.warn('Restore texture failed:', e); }
+    }
+  }
+
+  // Always launch native AR (Scene Viewer / Quick Look) even after baking a runtime texture
+  async function launchNativeAR() {
+    // 1) Ensure absolute HTTPS src so Scene Viewer can fetch the model
+    mv.src = ABS_GLB;
+
+    // 2) Clear runtime texture so <model-viewer> doesn’t stick to WebXR path
+    try {
+      if (mat?.pbrMetallicRoughness?.baseColorTexture) {
+        mat.pbrMetallicRoughness.baseColorTexture.setTexture(null);
+      }
+    } catch(e) { console.warn('Clearing runtime texture failed:', e); }
+
+    // 3) Prefer native viewers
+    mv.setAttribute('ar-modes', 'scene-viewer quick-look webxr');
+
+    // 4) Launch AR
+    try {
+      await mv.activateAR();
+    } catch (e) {
+      console.warn('activateAR failed:', e);
+      status.textContent = '❌ AR failed to start.';
     }
   }
 
@@ -320,11 +338,34 @@ mv.addEventListener('ar-status', (e) => {
     await ensureBakedAndApply();
   });
 
-  if (arTopBtn) {
-    arTopBtn.addEventListener('click', () => {
-      try { mv.activateAR(); } catch(e) { console.warn('activateAR failed:', e); }
-    });
+  // Intercept both AR buttons to force native AR path
+  const arSlotBtn = mv.querySelector('[slot="ar-button"]');
+  if (arSlotBtn) {
+    arSlotBtn.addEventListener('click', (e) => { e.preventDefault(); launchNativeAR(); });
   }
+  if (arTopBtn) {
+    arTopBtn.addEventListener('click', () => { launchNativeAR(); });
+  }
+
+  // Single ar-status listener: show mode + restore preview texture on exit
+  mv.addEventListener('ar-status', async (ev) => {
+    const mode = mv.arMode; // 'scene-viewer' | 'quick-look' | 'webxr' | undefined
+    console.log('[AR status]', ev.detail.status, 'mode =', mode);
+    if (ev.detail.status === 'session-started') {
+      if (mode === 'scene-viewer' || mode === 'quick-look') {
+        status.textContent = 'AR via native viewer. Occlusion handled by device.';
+      } else if (mode === 'webxr') {
+        status.textContent = 'AR via WebXR (in page).';
+      }
+    }
+    if (ev.detail.status === 'failed') {
+      status.textContent = '❌ AR failed to start.';
+    }
+    if (ev.detail.status === 'not-presenting') {
+      await restoreRuntimeTexture();
+      status.textContent = 'AR session ended.';
+    }
+  });
 
   populateDropdown();
   TILE_URL = null;
