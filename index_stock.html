@@ -92,19 +92,23 @@
         </div>
       </div>
       <div id="status">Please select a carpet from the dropdown.</div>
+      <div id="caps" style="color:#94a3b8;font-size:12px;margin-top:4px"></div>
     </div>
 
-    <model-viewer id="mv"
-      src="./rug_plane_blank.glb"
-      ar
-      ar-modes="webxr scene-viewer quick-look"  <!-- WebXR first (Android), Quick Look still works on iOS -->
-      camera-controls
-      disable-zoom
-      exposure="1"
-      environment-image="neutral"
-      shadow-intensity="0">
-      <button slot="ar-button">View in AR</button>
-    </model-viewer>
+    <!-- Prefer native AR (occlusion), WebXR as fallback -->
+<model-viewer
+  id="mv"
+  src="./rug_plane_blank.glb"
+  ar
+  ar-modes="scene-viewer quick-look webxr"
+  ar-placement="floor"
+  camera-controls
+  disable-zoom
+  exposure="1"
+  environment-image="neutral"
+  shadow-intensity="0">
+  <button slot="ar-button">View in AR</button>
+</model-viewer>
   </main>
 
 <script type="module">
@@ -139,17 +143,40 @@
   const applyBtn    = document.getElementById('apply');
   const status      = document.getElementById('status');
   const arTopBtn    = document.getElementById('arTopBtn');
+  const capsEl      = document.getElementById('caps');
 
-  // Force WebXR on Android so Scene Viewer doesn't drop our dynamic texture
-  const isAndroid = /Android/i.test(navigator.userAgent);
-  if (isAndroid) {
-    mv.arModes = 'webxr';
-  }
+  // REMOVE: no longer force WebXR on Android (we want Scene Viewer/Quick Look for occlusion)
+  // const isAndroid = /Android/i.test(navigator.userAgent);
+  // if (isAndroid) {
+  //   mv.arModes = 'webxr';
+  // }
 
-  // (Optional) log AR status/mode for debugging
+  // (Optional) log AR status/mode for debugging + show a helpful message
+  let lastBakedURL = null; // remember the most recent baked texture (data URL) for messaging
   mv.addEventListener('ar-status', (ev) => {
-    console.log('[AR status]', ev.detail.status, 'mode =', mv.arMode);
+    const mode = mv.arMode; // 'scene-viewer' | 'quick-look' | 'webxr' | undefined
+    console.log('[AR status]', ev.detail.status, 'mode =', mode);
+    if (ev.detail.status === 'session-started') {
+      if (mode === 'scene-viewer' || mode === 'quick-look') {
+        status.textContent = 'AR via native viewer. Occlusion handled by device. Note: live-baked textures can’t be passed to native viewers.';
+      } else if (mode === 'webxr') {
+        status.textContent = 'AR via WebXR (in page). Occlusion depends on Depth API support on this device.';
+      }
+    }
+    if (ev.detail.status === 'failed' || ev.detail.status === 'not-presenting') {
+      status.textContent = 'AR session ended.';
+    }
   });
+
+  // Simple capability hint (optional)
+  (async () => {
+    const gl2 = document.createElement('canvas').getContext('webgl2', { xrCompatible:true });
+    const xr = 'xr' in navigator;
+    let ar = false;
+    try { ar = xr && await navigator.xr.isSessionSupported('immersive-ar'); } catch {}
+    const badge = (t,ok)=>`<span style="padding:2px 6px;border:1px solid #2a2f39;border-radius:8px;margin-right:6px;${ok?'':'opacity:.55'}">${t}${ok?' ✅':' ❌'}</span>`;
+    capsEl.innerHTML = badge('WebGL2', !!gl2) + badge('WebXR', xr) + badge('AR', ar) + ' — Native AR preferred for occlusion';
+  })();
 
   // State
   let mat = null;
@@ -263,6 +290,7 @@
       const tex = await mv.createTexture(bakedURL);
       mat.pbrMetallicRoughness.baseColorTexture.setTexture(tex);
       bakedKey = key;
+      lastBakedURL = bakedURL; // remember for messaging / potential future use
       status.textContent = 'Texture applied ✅';
     } catch (e) {
       console.error('Bake/apply failed:', e);
