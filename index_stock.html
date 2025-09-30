@@ -95,10 +95,9 @@
       <div id="caps" style="color:#94a3b8;font-size:12px;margin-top:4px"></div>
     </div>
 
-    <!-- Prefer native AR (occlusion), WebXR as fallback -->
 <model-viewer
   id="mv"
-  src="./rug_plane_blank.glb"
+  src="https://djwwc.github.io/WC-AR/rug_plane_blank.glb"
   ar
   ar-modes="scene-viewer quick-look webxr"
   ar-placement="floor"
@@ -109,6 +108,7 @@
   shadow-intensity="0">
   <button slot="ar-button">View in AR</button>
 </model-viewer>
+
   </main>
 
 <script type="module">
@@ -145,11 +145,9 @@
   const arTopBtn    = document.getElementById('arTopBtn');
   const capsEl      = document.getElementById('caps');
 
-  // REMOVE: no longer force WebXR on Android (we want Scene Viewer/Quick Look for occlusion)
-  // const isAndroid = /Android/i.test(navigator.userAgent);
-  // if (isAndroid) {
-  //   mv.arModes = 'webxr';
-  // }
+mv.addEventListener('ar-status', (e) => {
+  console.log('AR status:', e.detail.status, 'mode =', mv.arMode);
+});
 
   // (Optional) log AR status/mode for debugging + show a helpful message
   let lastBakedURL = null; // remember the most recent baked texture (data URL) for messaging
