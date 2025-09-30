@@ -290,29 +290,32 @@
     }
   }
 
-  // Always launch native AR (Scene Viewer / Quick Look) even after baking a runtime texture
-  async function launchNativeAR() {
-    // 1) Ensure absolute HTTPS src so Scene Viewer can fetch the model
-    mv.src = ABS_GLB;
+  // Always launch native AR on Android (Scene Viewer intent).
+// Keep the baked texture in the page preview; native AR loads the GLB by URL.
+async function launchNativeAR() {
+  const ABS_GLB = "https://djwwc.github.io/WC-AR/rug_plane_blank.glb";
+  const isAndroid = /Android/i.test(navigator.userAgent);
 
-    // 2) Clear runtime texture so <model-viewer> doesn’t stick to WebXR path
-    try {
-      if (mat?.pbrMetallicRoughness?.baseColorTexture) {
-        mat.pbrMetallicRoughness.baseColorTexture.setTexture(null);
-      }
-    } catch(e) { console.warn('Clearing runtime texture failed:', e); }
+  // Make sure <model-viewer> points to an absolute HTTPS model for native AR.
+  // (Doesn't remove your baked preview texture anymore.)
+  if (mv.src !== ABS_GLB) mv.src = ABS_GLB;
+  mv.setAttribute('ar-modes', 'scene-viewer quick-look webxr');
 
-    // 3) Prefer native viewers
-    mv.setAttribute('ar-modes', 'scene-viewer quick-look webxr');
-
-    // 4) Launch AR
-    try {
-      await mv.activateAR();
-    } catch (e) {
-      console.warn('activateAR failed:', e);
-      status.textContent = '❌ AR failed to start.';
-    }
+  if (isAndroid) {
+    // Open Scene Viewer directly via intent (most reliable path to native AR + occlusion)
+    const intent = `intent://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(ABS_GLB)}&mode=ar_only#Intent;scheme=https;package=com.google.android.googlequicksearchbox;end;`;
+    window.location.href = intent;
+    return;
   }
+
+  // Non-Android (e.g., iOS with Quick Look) falls back to model-viewer's AR
+  try {
+    await mv.activateAR();
+  } catch (e) {
+    console.warn('activateAR failed:', e);
+    status.textContent = '❌ AR failed to start.';
+  }
+}
 
   mv.addEventListener('load', () => {
     mat = mv.model?.materials?.find(m => m.name === 'RugMat') || mv.model?.materials?.[0];
@@ -338,34 +341,23 @@
     await ensureBakedAndApply();
   });
 
-  // Intercept both AR buttons to force native AR path
-  const arSlotBtn = mv.querySelector('[slot="ar-button"]');
-  if (arSlotBtn) {
-    arSlotBtn.addEventListener('click', (e) => { e.preventDefault(); launchNativeAR(); });
-  }
-  if (arTopBtn) {
-    arTopBtn.addEventListener('click', () => { launchNativeAR(); });
-  }
+ // Intercept both AR buttons to force native AR path
+const arSlotBtn = mv.querySelector('[slot="ar-button"]');
+if (arSlotBtn) {
+  arSlotBtn.addEventListener('click', (e) => { e.preventDefault(); launchNativeAR(); });
+}
+if (arTopBtn) {
+  arTopBtn.addEventListener('click', () => { launchNativeAR(); });
+}
 
-  // Single ar-status listener: show mode + restore preview texture on exit
-  mv.addEventListener('ar-status', async (ev) => {
-    const mode = mv.arMode; // 'scene-viewer' | 'quick-look' | 'webxr' | undefined
-    console.log('[AR status]', ev.detail.status, 'mode =', mode);
-    if (ev.detail.status === 'session-started') {
-      if (mode === 'scene-viewer' || mode === 'quick-look') {
-        status.textContent = 'AR via native viewer. Occlusion handled by device.';
-      } else if (mode === 'webxr') {
-        status.textContent = 'AR via WebXR (in page).';
-      }
-    }
-    if (ev.detail.status === 'failed') {
-      status.textContent = '❌ AR failed to start.';
-    }
-    if (ev.detail.status === 'not-presenting') {
-      await restoreRuntimeTexture();
-      status.textContent = 'AR session ended.';
-    }
-  });
+mv.addEventListener('ar-status', (ev) => {
+  console.log('[AR status]', ev.detail.status, 'mode =', mv.arMode);
+  if (ev.detail.status === 'session-started') {
+    status.textContent = (mv.arMode === 'scene-viewer' || mv.arMode === 'quick-look')
+      ? 'AR via native viewer. Occlusion handled by device.'
+      : 'AR via WebXR (in page).';
+  }
+});
 
   populateDropdown();
   TILE_URL = null;
